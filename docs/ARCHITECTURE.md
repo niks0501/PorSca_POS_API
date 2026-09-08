@@ -46,9 +46,9 @@ Success:
 
 ### Products
 
-`GET /products` returns active products by default. Use `?active=false` to include inactive products. Use `?per_page=50` for paging.
+`GET /products` returns active products by default. Use `?search=coffee` (or `?name=coffee`) for a case-insensitive name search, `?barcode=...` for an exact barcode filter, `?active=false` to include inactive products, and `?per_page=50` for paging.
 
-`GET /products/{id}` returns one active product.
+`GET /products/{id}` returns one active product. `GET /products/barcode/{barcode}` performs an exact lookup of one active product. An unknown or inactive barcode returns the standard `404 not_found` error.
 
 Example item:
 
@@ -56,20 +56,27 @@ Example item:
 {
   "id": 1,
   "sku": "RICE-001",
+  "barcode": "4800000000010",
   "name": "Sinandomeng Rice 5kg",
   "description": null,
   "price": 32000,
   "currency": "PHP",
   "active": true,
-  "stock": {"quantity": 20, "reorder_level": 5}
+  "stock": {
+    "quantity": 20,
+    "reorder_level": 5,
+    "status": "in_stock",
+    "low_stock": false,
+    "out_of_stock": false
+  }
 }
 ```
 
-The list response is `{ "data": { "items": [], "pagination": {} } }`.
+The list response is `{ "data": { "items": [], "pagination": {} } }`. Product responses expose only catalog and stock fields; API tokens, payment credentials, and other backend-only secrets are never serialized.
 
 ### Inventory
 
-`GET /inventory` returns stock for every product. `GET /inventory/{product_id}` returns one stock row. Use `?low_stock=true` to filter rows at or below their reorder level.
+`GET /inventory` returns stock for every product. `GET /inventory/{product_id}` returns one stock row. Use `?low_stock=true` to filter rows at or below their reorder level. Each row uses the same `quantity`, `reorder_level`, `status`, `low_stock`, and `out_of_stock` fields as the product `stock` object. `status` is one of `in_stock`, `low_stock`, or `out_of_stock`; an out-of-stock row has `quantity: 0` and `out_of_stock: true`.
 
 Stock changes only as part of a successful payment settlement. A client cannot directly deduct stock.
 

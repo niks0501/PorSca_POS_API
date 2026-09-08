@@ -23,7 +23,7 @@ The Laravel tests cover:
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: health, products, checkout, payment read, webhook settlement, payment read again, sales, and transactions.
+The collection runs the HTTP contract in order: health, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, webhook settlement, payment read again, sales, and transactions.
 
 Required tools:
 
@@ -53,7 +53,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: Newman reports 8 requests and all assertions passing. The seeded database must be fresh before this run because the collection buys one seeded product and reduces its stock.
+Success: Newman reports 13 requests and all assertions passing. The seeded database must be fresh before this run because the collection buys one seeded product and reduces its stock.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `api_token`, and `webhook_secret` from the staging machine's environment. Never commit the copy:
 

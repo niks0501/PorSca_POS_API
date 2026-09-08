@@ -53,7 +53,7 @@ touch database/porsca_staging.sqlite
 php artisan qa:reset --force
 ```
 
-Success looks like the command ending with `Staging reset to qa-baseline-2026-01` and four products in the new database. This runs `migrate:fresh --seed` against the `staging` connection. It is destructive, so it is allowed only before a cycle starts.
+Success looks like the command ending with `Staging reset to qa-baseline-2026-02` and four products in the new database. This runs `migrate:fresh --seed` against the `staging` connection. It is destructive, so it is allowed only before a cycle starts.
 
 After the cycle starts, preserve the database. Do not run `migrate:fresh`, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
 

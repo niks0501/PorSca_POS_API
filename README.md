@@ -91,7 +91,7 @@ List the seeded products:
 curl -H 'Authorization: Bearer local-api-token' http://127.0.0.1:8000/api/v1/products
 ```
 
-Success: the response contains a `data.items` list with products such as `Sinandomeng Rice 5kg`.
+Success: the response contains a `data.items` list with products such as `Sinandomeng Rice 5kg`. Add `?search=coffee` for name search or call `/api/v1/products/barcode/4800000000010` for the seeded rice barcode lookup. Product responses include a consistent stock status (`in_stock`, `low_stock`, or `out_of_stock`).
 
 ## If something goes wrong
 

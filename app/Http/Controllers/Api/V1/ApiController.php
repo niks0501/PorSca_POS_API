@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Inventory;
 use Illuminate\Http\JsonResponse;
 
 abstract class ApiController extends Controller
@@ -27,16 +28,43 @@ abstract class ApiController extends Controller
         return [
             'id' => $product->id,
             'sku' => $product->sku,
+            'barcode' => $product->barcode,
             'name' => $product->name,
             'description' => $product->description,
             'price' => $product->price,
             'currency' => $product->currency,
             'active' => $product->active,
-            'stock' => $product->relationLoaded('inventory') && $product->inventory !== null ? [
-                'quantity' => $product->inventory->quantity,
-                'reorder_level' => $product->inventory->reorder_level,
-            ] : null,
+            'stock' => $product->relationLoaded('inventory')
+                ? $this->stockArray($product->inventory)
+                : null,
         ];
+    }
+
+    protected function stockArray(?Inventory $inventory): ?array
+    {
+        if ($inventory === null) {
+            return null;
+        }
+
+        $quantity = (int) $inventory->quantity;
+        $reorderLevel = (int) $inventory->reorder_level;
+
+        return [
+            'quantity' => $quantity,
+            'reorder_level' => $reorderLevel,
+            'status' => $this->stockStatus($quantity, $reorderLevel),
+            'low_stock' => $quantity <= $reorderLevel,
+            'out_of_stock' => $quantity === 0,
+        ];
+    }
+
+    protected function stockStatus(int $quantity, int $reorderLevel): string
+    {
+        return match (true) {
+            $quantity === 0 => 'out_of_stock',
+            $quantity <= $reorderLevel => 'low_stock',
+            default => 'in_stock',
+        };
     }
 
     protected function paymentArray($payment): array

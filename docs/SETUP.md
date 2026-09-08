@@ -13,7 +13,7 @@ php artisan key:generate
 php artisan migrate:fresh --seed
 ```
 
-Success looks like completed migrations and four seeded products.
+Success looks like completed migrations and four seeded products, including in-stock, low-stock, and out-of-stock scenarios.
 
 Start the server:
 
@@ -45,7 +45,7 @@ For a local request, send:
 Authorization: Bearer local-api-token
 ```
 
-Replace the token when `API_TOKEN` has another value.
+Replace the token when `API_TOKEN` has another value. The seeded rice product can be looked up with `GET /api/v1/products/barcode/4800000000010`; coffee is low stock and soap is out of stock for catalog and inventory checks.
 
 ## Canonical verification
 

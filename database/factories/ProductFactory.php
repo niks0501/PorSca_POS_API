@@ -14,6 +14,7 @@ class ProductFactory extends Factory
     {
         return [
             'sku' => fake()->unique()->bothify('SKU-####'),
+            'barcode' => fake()->unique()->ean13(),
             'name' => fake()->words(2, true),
             'description' => fake()->sentence(),
             'price' => fake()->numberBetween(100, 10000),

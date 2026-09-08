@@ -20,15 +20,75 @@
       ]}}]
     },
     {
-      "name": "Products",
+      "name": "Products - catalog",
       "request": {
         "method": "GET",
         "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
         "url": "{{base_url}}/products"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
-        "pm.test('products are returned', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.items.length).to.be.above(0); });",
-        "pm.environment.set('product_id', pm.response.json().data.items[0].id);"
+        "pm.test('products are returned with stock state', function () { pm.response.to.have.status(200); const items = pm.response.json().data.items; pm.expect(items.length).to.be.above(0); pm.expect(items[0]).to.have.property('barcode'); pm.expect(items[0].stock).to.have.property('status'); });",
+        "const items = pm.response.json().data.items;",
+        "const rice = items.find(function (item) { return item.sku === 'RICE-001'; });",
+        "const coffee = items.find(function (item) { return item.sku === 'COFFEE-001'; });",
+        "const soap = items.find(function (item) { return item.sku === 'SOAP-001'; });",
+        "pm.expect(rice, 'seeded rice product').to.not.be.undefined; pm.expect(coffee, 'seeded coffee product').to.not.be.undefined; pm.expect(soap, 'seeded soap product').to.not.be.undefined;",
+        "pm.environment.set('product_id', rice.id); pm.environment.set('product_barcode', rice.barcode); pm.environment.set('out_of_stock_product_id', soap.id);"
+      ]}}]
+    },
+    {
+      "name": "Products - name search",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/products?search=coffee"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('name search finds coffee', function () { pm.response.to.have.status(200); const items = pm.response.json().data.items; pm.expect(items.length).to.eql(1); pm.expect(items[0].name).to.contain('Coffee'); });"
+      ]}}]
+    },
+    {
+      "name": "Products - barcode lookup",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/products/barcode/{{product_barcode}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('barcode lookup returns product', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.sku).to.eql('RICE-001'); pm.expect(data.barcode).to.eql(pm.environment.get('product_barcode')); });"
+      ]}}]
+    },
+    {
+      "name": "Products - unknown barcode",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/products/barcode/0000000000000"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('unknown barcode is explicit', function () { pm.response.to.have.status(404); pm.expect(pm.response.json().error.code).to.eql('not_found'); });"
+      ]}}]
+    },
+    {
+      "name": "Inventory - low and out-of-stock states",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/inventory?low_stock=true"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('inventory filter returns low and out states', function () { pm.response.to.have.status(200); const items = pm.response.json().data.items; pm.expect(items.some(function (item) { return item.status === 'low_stock' && item.low_stock === true; })).to.eql(true); pm.expect(items.some(function (item) { return item.status === 'out_of_stock' && item.out_of_stock === true && item.quantity === 0; })).to.eql(true); });"
+      ]}}]
+    },
+    {
+      "name": "Inventory - out-of-stock product",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/inventory/{{out_of_stock_product_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('out-of-stock lookup is consistent', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.quantity).to.eql(0); pm.expect(data.status).to.eql('out_of_stock'); pm.expect(data.out_of_stock).to.eql(true); });"
       ]}}]
     },
     {
