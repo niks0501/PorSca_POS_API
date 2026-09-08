@@ -1,0 +1,125 @@
+{
+  "info": {
+    "name": "PorSca API v1",
+    "description": "Repeatable backend contract checks. Run against a freshly seeded local or staging API. Never commit real tokens or webhook secrets.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "idempotency_key", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/health"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('health is ok', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.status).to.eql('ok'); });"
+      ]}}]
+    },
+    {
+      "name": "Products",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/products"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('products are returned', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.items.length).to.be.above(0); });",
+        "pm.environment.set('product_id', pm.response.json().data.items[0].id);"
+      ]}}]
+    },
+    {
+      "name": "Sales - Checkout (creates QR Ph practice payment)",
+      "event": [
+        {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+          "pm.collectionVariables.set('idempotency_key', 'postman-' + Date.now());"
+        ]}},
+        {"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('checkout is pending', function () { pm.response.to.have.status(201); pm.expect(pm.response.json().data.status).to.eql('pending'); });",
+          "pm.environment.set('payment_id', pm.response.json().data.id);",
+          "pm.environment.set('provider_payment_id', pm.response.json().data.provider_payment_id);"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Idempotency-Key", "value": "{{idempotency_key}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"items\": [{\"product_id\": {{product_id}}, \"quantity\": 1}]\n}"},
+        "url": "{{base_url}}/sales/checkout"
+      }
+    },
+    {
+      "name": "Payments - Get pending payment",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/payments/{{payment_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('payment can be read', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.id).to.eql(Number(pm.environment.get('payment_id'))); });"
+      ]}}]
+    },
+    {
+      "name": "Webhooks - Mark payment paid",
+      "event": [
+        {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+          "const body = { event_id: 'evt-postman-' + Date.now(), type: 'payment.paid', payment_id: pm.environment.get('provider_payment_id'), status: 'paid' };",
+          "const raw = JSON.stringify(body);",
+          "pm.environment.set('webhook_body', raw);",
+          "pm.environment.set('webhook_signature', CryptoJS.HmacSHA256(raw, pm.environment.get('webhook_secret')).toString(CryptoJS.enc.Hex));"
+        ]}},
+        {"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('webhook settles payment', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.payment.status).to.eql('paid'); pm.expect(pm.response.json().data.payment.sale_id).to.not.be.null; });"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-PayMongo-Signature", "value": "{{webhook_signature}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{{webhook_body}}"},
+        "url": "{{base_url}}/webhooks/paymongo"
+      }
+    },
+    {
+      "name": "Payments - Get paid payment",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/payments/{{payment_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('payment is paid', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.status).to.eql('paid'); });"
+      ]}}]
+    },
+    {
+      "name": "Sales",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/sales"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('sale was recorded', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.items.length).to.be.above(0); });"
+      ]}}]
+    },
+    {
+      "name": "Transactions",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/transactions?payment_id={{payment_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('payment ledger exists', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.items.length).to.be.above(1); });"
+      ]}}]
+    }
+  ]
+}
