@@ -1,2 +1,2 @@
-<!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+<!-- Keep this file as a thin pointer; edit AGENTS.md for project guidance. -->
 @AGENTS.md

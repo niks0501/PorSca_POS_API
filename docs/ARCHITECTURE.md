@@ -1,5 +1,7 @@
 # API architecture and mobile contract
 
+**Contract version for this release unit: `porsca-mobile-api-v1`. Verify this value against the mobile repository's `docs/API-CONTRACT.md` before pairing revisions.**
+
 ## Authority
 
 Laravel is the only backend authority for PorSca products, inventory, sales, transactions, payments, and PayMongo webhook events. The old Express payment scaffold is not an API source of truth and must be retired when the Laravel mobile integration is ready.
