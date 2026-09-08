@@ -100,8 +100,13 @@ abstract class ApiController extends Controller
             'id' => $sale->id,
             'idempotency_key' => $sale->idempotency_key,
             'status' => $sale->status,
+            'payment_method' => $sale->payment_method,
             'total_amount' => $sale->total_amount,
+            'total' => $sale->total_amount,
             'currency' => $sale->currency,
+            'cash_received' => $sale->cash_received,
+            'change_amount' => $sale->change_amount,
+            'change' => $sale->change_amount,
             'completed_at' => $sale->completed_at?->toISOString(),
             'items' => $sale->relationLoaded('items') ? $sale->items->map(fn ($item) => [
                 'product_id' => $item->product_id,

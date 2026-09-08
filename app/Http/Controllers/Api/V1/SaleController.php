@@ -10,6 +10,7 @@ class SaleController extends ApiController
     public function index(Request $request)
     {
         $sales = Sale::query()
+            ->where('status', 'completed')
             ->with('items.product')
             ->latest('completed_at')
             ->paginate(min((int) $request->integer('per_page', 50), 100));

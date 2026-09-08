@@ -54,6 +54,54 @@
       ]}}]
     },
     {
+      "name": "Sales - Cash sale",
+      "event": [
+        {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+          "pm.collectionVariables.set('cash_idempotency_key', 'postman-cash-' + Date.now());"
+        ]}},
+        {"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('cash sale completes from server totals', function () { pm.response.to.have.status(201); const data = pm.response.json().data; pm.expect(data.status).to.eql('completed'); pm.expect(data.payment_method).to.eql('cash'); pm.expect(data.total_amount).to.eql(39800); pm.expect(data.cash_received).to.eql(40000); pm.expect(data.change_amount).to.eql(200); pm.expect(data.items[0].unit_price).to.eql(19900); pm.environment.set('cash_sale_id', data.id); });"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Idempotency-Key", "value": "{{cash_idempotency_key}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"payment_method\": \"cash\",\n  \"cash_received\": 40000,\n  \"total\": 1,\n  \"items\": [{\"product_id\": {{managed_product_id}}, \"quantity\": 2, \"unit_price\": 1}]\n}"},
+        "url": "{{base_url}}/sales/checkout"
+      }
+    },
+    {
+      "name": "Sales - Cash sale retry",
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('cash sale retry is idempotent', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.id).to.eql(Number(pm.environment.get('cash_sale_id'))); pm.expect(data.total_amount).to.eql(39800); pm.expect(data.change_amount).to.eql(200); });"
+      ]}}],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Idempotency-Key", "value": "{{cash_idempotency_key}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"payment_method\": \"cash\",\n  \"cash_received\": 40000,\n  \"total\": 999999,\n  \"items\": [{\"product_id\": {{managed_product_id}}, \"quantity\": 2}]\n}"},
+        "url": "{{base_url}}/sales/checkout"
+      }
+    },
+    {
+      "name": "Sales - Cash sale history",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/sales/{{cash_sale_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('completed cash sale is queryable', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.id).to.eql(Number(pm.environment.get('cash_sale_id'))); pm.expect(data.status).to.eql('completed'); pm.expect(data.payment_method).to.eql('cash'); pm.expect(data.items.length).to.eql(1); });"
+      ]}}]
+    },
+    {
       "name": "Health",
       "request": {
         "method": "GET",
@@ -212,7 +260,7 @@
         "url": "{{base_url}}/sales"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
-        "pm.test('sale was recorded', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.items.length).to.be.above(0); });"
+        "pm.test('sales history includes completed sales', function () { pm.response.to.have.status(200); const items = pm.response.json().data.items; pm.expect(items.length).to.be.above(0); pm.expect(items.some(function (item) { return item.id === Number(pm.environment.get('cash_sale_id')) && item.status === 'completed'; })).to.eql(true); });"
       ]}}]
     },
     {
@@ -224,6 +272,17 @@
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
         "pm.test('payment ledger exists', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.items.length).to.be.above(1); });"
+      ]}}]
+    },
+    {
+      "name": "Transactions - Cash sale history",
+      "request": {
+        "method": "GET",
+        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "url": "{{base_url}}/transactions?sale_id={{cash_sale_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('cash sale ledger is queryable', function () { pm.response.to.have.status(200); const items = pm.response.json().data.items; pm.expect(items.length).to.eql(1); pm.expect(items[0].type).to.eql('cash_sale'); pm.expect(items[0].status).to.eql('completed'); pm.expect(items[0].amount).to.eql(39800); });"
       ]}}]
     }
   ]

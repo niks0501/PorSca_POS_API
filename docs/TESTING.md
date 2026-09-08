@@ -19,6 +19,7 @@ The Laravel tests cover:
 - atomic paid settlement and stock deduction
 - failed and cancelled payments with no sale or deduction
 - signed and repeated webhooks
+- atomic cash sales, insufficient cash/stock, and idempotent retries
 - sandbox-only PayMongo behavior
 
 ## Postman collection
@@ -53,7 +54,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: Newman reports 16 requests and all assertions passing. The seeded database must be fresh before this run because the collection creates a managed product and buys one seeded product, reducing its stock.
+Success: Newman reports 20 requests and all assertions passing. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, then buys one seeded product, reducing its stock.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `api_token`, and `webhook_secret` from the staging machine's environment. Never commit the copy:
 

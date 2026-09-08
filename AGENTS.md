@@ -24,6 +24,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Staging and promotion — [docs/STAGING.md](docs/STAGING.md)
 - Testing — [docs/TESTING.md](docs/TESTING.md)
+- Cash-sale and QR payment contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#checkout-and-payments)
 - Formal QA cycle — [docs/QA-CYCLE.md](docs/QA-CYCLE.md)
 - Workflow, including the billing-outage merge rule — [docs/STAGING.md](docs/STAGING.md)
 

@@ -8,6 +8,7 @@ use App\Exceptions\IdempotencyConflict;
 use App\Exceptions\InsufficientStock;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\Sale;
 use Illuminate\Support\Facades\DB;
 
 class CheckoutService
@@ -33,6 +34,10 @@ class CheckoutService
                 ->where('active', true)
                 ->get()
                 ->keyBy('id');
+
+            if (Sale::query()->where('idempotency_key', $idempotencyKey)->exists()) {
+                throw new IdempotencyConflict;
+            }
 
             if ($products->count() !== count($items)) {
                 $missing = array_values(array_diff(array_keys($items), $products->keys()->all()));

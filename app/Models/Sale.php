@@ -17,6 +17,8 @@ class Sale extends Model
     {
         return [
             'total_amount' => 'integer',
+            'cash_received' => 'integer',
+            'change_amount' => 'integer',
             'completed_at' => 'datetime',
         ];
     }
