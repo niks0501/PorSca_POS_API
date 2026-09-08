@@ -14,6 +14,18 @@ Staging is for formal QA. It is not a developer scratch database.
 
 `main` is stable. `staging` started at the same commit as `main` and should remain the QA integration branch.
 
+## Merging while the check runners are down (billing lock)
+
+Checks that never started are not the same as checks that failed. Code that the runners actually failed must never be merged without a fix.
+
+Merging into `staging` while the runners are down is allowed only when:
+
+1. The PR body shows a green local run of the canonical `composer verify` command.
+2. A human reviewed the diff.
+3. The billing lock is confirmed as the only reason the checks sat out.
+
+Promoting into `main` still waits for green checks or a completed human QA round with approval. Quotas reset monthly, so this is temporary. Narrowing check triggers is a separate later decision.
+
 ## Isolated database
 
 The staging database must not be the developer database. Use a database named `porsca_staging` in MySQL/PostgreSQL, or the separate SQLite file `database/porsca_staging.sqlite`.
