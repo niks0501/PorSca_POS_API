@@ -43,3 +43,10 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 ## Freshness
 
 A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

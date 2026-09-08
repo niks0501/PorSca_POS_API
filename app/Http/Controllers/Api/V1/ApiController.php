@@ -30,6 +30,7 @@ abstract class ApiController extends Controller
             'sku' => $product->sku,
             'barcode' => $product->barcode,
             'name' => $product->name,
+            'category' => $product->category,
             'description' => $product->description,
             'price' => $product->price,
             'currency' => $product->currency,

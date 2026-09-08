@@ -9,6 +9,51 @@
   ],
   "item": [
     {
+      "name": "Products - create managed product",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product\",\n  \"barcode\": \"4800000000999\",\n  \"category\": \"Beverage\",\n  \"price\": 17500,\n  \"stock\": 8,\n  \"reorder_level\": 2\n}"},
+        "url": "{{base_url}}/products"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('product is created with authoritative stock', function () { pm.response.to.have.status(201); const data = pm.response.json().data; pm.expect(data.name).to.eql('Postman Managed Product'); pm.expect(data.category).to.eql('Beverage'); pm.expect(data.stock.quantity).to.eql(8); pm.expect(data.stock.status).to.eql('in_stock'); pm.environment.set('managed_product_id', data.id); pm.environment.set('managed_product_barcode', data.barcode); });"
+      ]}}]
+    },
+    {
+      "name": "Products - edit managed product",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product XL\",\n  \"barcode\": \"4800000000998\",\n  \"category\": \"Beverage\",\n  \"price\": 19900,\n  \"stock\": 11\n}"},
+        "url": "{{base_url}}/products/{{managed_product_id}}"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('product edit returns authoritative state', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.name).to.eql('Postman Managed Product XL'); pm.expect(data.barcode).to.eql('4800000000998'); pm.expect(data.price).to.eql(19900); pm.expect(data.stock.quantity).to.eql(11); });"
+      ]}}]
+    },
+    {
+      "name": "Products - update managed stock",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"stock\": 9\n}"},
+        "url": "{{base_url}}/products/{{managed_product_id}}/stock"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('stock update returns authoritative state', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.stock.quantity).to.eql(9); pm.expect(data.stock.status).to.eql('in_stock'); });"
+      ]}}]
+    },
+    {
       "name": "Health",
       "request": {
         "method": "GET",
