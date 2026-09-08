@@ -15,7 +15,7 @@ class PaymentSettlementService
     public function settle(Payment|int $payment, string $status, ?string $providerEventId = null, array $metadata = []): Payment
     {
         $status = strtolower($status);
-        if (! in_array($status, [Payment::PENDING, Payment::PAID, Payment::FAILED, Payment::CANCELLED], true)) {
+        if (! in_array($status, [Payment::PENDING, ...Payment::terminalStatuses()], true)) {
             throw new ApiException('Unsupported payment status.', 422, ['status' => ['Unsupported payment status.']]);
         }
 
@@ -28,7 +28,7 @@ class PaymentSettlementService
 
             // A terminal result is never downgraded or reprocessed. This is the
             // primary guard against duplicate webhook/payment delivery.
-            if (in_array($paymentModel->status, [Payment::PAID, Payment::FAILED, Payment::CANCELLED], true)) {
+            if (in_array($paymentModel->status, Payment::terminalStatuses(), true)) {
                 return $paymentModel->fresh()->load('items.product', 'sale');
             }
 
@@ -36,12 +36,16 @@ class PaymentSettlementService
                 return $paymentModel->fresh()->load('items.product', 'sale');
             }
 
-            if (in_array($status, [Payment::FAILED, Payment::CANCELLED], true)) {
+            if (in_array($status, [Payment::FAILED, Payment::CANCELLED, Payment::EXPIRED], true)) {
                 $paymentModel->update([
                     'status' => $status,
-                    'failure_reason' => $metadata['failure_reason'] ?? null,
+                    'failure_reason' => $metadata['failure_reason'] ?? $status,
                 ]);
-                $this->recordTransaction($paymentModel, $status === Payment::CANCELLED ? 'payment_cancelled' : 'payment_failed', $status, $providerEventId, $metadata);
+                $this->recordTransaction($paymentModel, match ($status) {
+                    Payment::CANCELLED => 'payment_cancelled',
+                    Payment::EXPIRED => 'payment_expired',
+                    default => 'payment_failed',
+                }, $status, $providerEventId, $metadata);
 
                 return $paymentModel->fresh()->load('items.product', 'sale');
             }

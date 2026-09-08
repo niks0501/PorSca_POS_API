@@ -16,13 +16,13 @@ class PayMongoWebhookVerifier
     public function verify(Request $request): bool
     {
         $secret = (string) config('services.paymongo.webhook_secret');
-        $provided = (string) $request->header('X-PayMongo-Signature', '');
-        if ($secret === '' || $provided === '') {
+        $provided = trim((string) $request->header('X-PayMongo-Signature', ''));
+        if ($secret === '' || $provided === '' || strlen($provided) !== 64 || ! ctype_xdigit($provided)) {
             return false;
         }
 
         $expected = hash_hmac('sha256', $request->getContent(), $secret);
 
-        return hash_equals($expected, $provided);
+        return hash_equals($expected, strtolower($provided));
     }
 }

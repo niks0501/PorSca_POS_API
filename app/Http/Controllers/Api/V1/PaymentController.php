@@ -20,7 +20,7 @@ class PaymentController extends ApiController
 
     public function refresh(Payment $payment)
     {
-        if (in_array($payment->status, [Payment::PAID, Payment::FAILED, Payment::CANCELLED], true)) {
+        if (in_array($payment->status, Payment::terminalStatuses(), true)) {
             return $this->data($this->paymentArray($payment->load('items.product', 'sale')));
         }
 
