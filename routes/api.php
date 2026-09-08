@@ -16,6 +16,7 @@ Route::prefix('v1')->group(function (): void {
 
     Route::middleware('api.token')->group(function (): void {
         Route::get('products', [ProductController::class, 'index'])->name('api.v1.products.index');
+        Route::get('products/barcode/{barcode}', [ProductController::class, 'byBarcode'])->name('api.v1.products.barcode');
         Route::get('products/{product}', [ProductController::class, 'show'])->name('api.v1.products.show');
 
         Route::get('inventory', [InventoryController::class, 'index'])->name('api.v1.inventory.index');

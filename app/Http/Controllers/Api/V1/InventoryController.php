@@ -27,8 +27,13 @@ class InventoryController extends ApiController
         ]);
     }
 
-    public function show(Product $product)
+    public function show(string $productId)
     {
+        $product = Product::query()->find($productId);
+        if ($product === null) {
+            return $this->error('not_found', 'Product not found.', 404);
+        }
+
         $inventory = $product->inventory;
         if ($inventory === null) {
             return $this->error('not_found', 'Inventory not found.', 404);
@@ -39,13 +44,14 @@ class InventoryController extends ApiController
 
     private function inventoryArray(Inventory $inventory): array
     {
+        $stock = $this->stockArray($inventory);
+
         return [
             'product_id' => $inventory->product_id,
             'sku' => $inventory->product?->sku,
+            'barcode' => $inventory->product?->barcode,
             'product_name' => $inventory->product?->name,
-            'quantity' => $inventory->quantity,
-            'reorder_level' => $inventory->reorder_level,
-            'low_stock' => $inventory->quantity <= $inventory->reorder_level,
+            ...$stock,
             'updated_at' => $inventory->updated_at?->toISOString(),
         ];
     }

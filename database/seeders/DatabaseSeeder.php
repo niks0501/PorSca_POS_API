@@ -9,7 +9,7 @@ use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    public const BASELINE_VERSION = 'qa-baseline-2026-01';
+    public const BASELINE_VERSION = 'qa-baseline-2026-02';
 
     public function run(): void
     {
@@ -19,10 +19,34 @@ class DatabaseSeeder extends Seeder
         ]);
 
         $products = [
-            ['sku' => 'RICE-001', 'name' => 'Sinandomeng Rice 5kg', 'price' => 32000, 'quantity' => 20],
-            ['sku' => 'COFFEE-001', 'name' => 'Barako Coffee 250g', 'price' => 18500, 'quantity' => 30],
-            ['sku' => 'SOAP-001', 'name' => 'Laundry Soap 500g', 'price' => 7500, 'quantity' => 50],
-            ['sku' => 'WATER-001', 'name' => 'Mineral Water 1L', 'price' => 3500, 'quantity' => 100],
+            [
+                'sku' => 'RICE-001',
+                'barcode' => '4800000000010',
+                'name' => 'Sinandomeng Rice 5kg',
+                'price' => 32000,
+                'quantity' => 20,
+            ],
+            [
+                'sku' => 'COFFEE-001',
+                'barcode' => '4800000000027',
+                'name' => 'Barako Coffee 250g',
+                'price' => 18500,
+                'quantity' => 3,
+            ],
+            [
+                'sku' => 'SOAP-001',
+                'barcode' => '4800000000034',
+                'name' => 'Laundry Soap 500g',
+                'price' => 7500,
+                'quantity' => 0,
+            ],
+            [
+                'sku' => 'WATER-001',
+                'barcode' => '4800000000041',
+                'name' => 'Mineral Water 1L',
+                'price' => 3500,
+                'quantity' => 100,
+            ],
         ];
 
         foreach ($products as $definition) {
