@@ -16,13 +16,22 @@ Route::prefix('v1')->group(function (): void {
 
     Route::middleware('api.token')->group(function (): void {
         Route::get('products', [ProductController::class, 'index'])->name('api.v1.products.index');
+        Route::post('products', [ProductController::class, 'store'])->name('api.v1.products.store');
         Route::get('products/barcode/{barcode}', [ProductController::class, 'byBarcode'])->name('api.v1.products.barcode');
+        Route::patch('products/{product}', [ProductController::class, 'update'])->name('api.v1.products.update');
+        Route::put('products/{product}', [ProductController::class, 'update'])->name('api.v1.products.replace');
+        Route::patch('products/{product}/stock', [ProductController::class, 'updateStock'])->name('api.v1.products.stock.update');
+        Route::put('products/{product}/stock', [ProductController::class, 'updateStock'])->name('api.v1.products.stock.replace');
         Route::get('products/{product}', [ProductController::class, 'show'])->name('api.v1.products.show');
 
         Route::get('inventory', [InventoryController::class, 'index'])->name('api.v1.inventory.index');
         Route::get('inventory/{product}', [InventoryController::class, 'show'])->name('api.v1.inventory.show');
+        Route::patch('inventory/{product}', [ProductController::class, 'updateStock'])->name('api.v1.inventory.update');
+        Route::put('inventory/{product}', [ProductController::class, 'updateStock'])->name('api.v1.inventory.replace');
         Route::get('stock', [InventoryController::class, 'index'])->name('api.v1.stock.index');
         Route::get('stock/{product}', [InventoryController::class, 'show'])->name('api.v1.stock.show');
+        Route::patch('stock/{product}', [ProductController::class, 'updateStock'])->name('api.v1.stock.update');
+        Route::put('stock/{product}', [ProductController::class, 'updateStock'])->name('api.v1.stock.replace');
 
         Route::post('sales/checkout', [CheckoutController::class, 'store'])->name('api.v1.sales.checkout');
         Route::get('sales', [SaleController::class, 'index'])->name('api.v1.sales.index');
