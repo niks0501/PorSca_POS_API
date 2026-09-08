@@ -33,6 +33,8 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('stock/{product}', [ProductController::class, 'updateStock'])->name('api.v1.stock.update');
         Route::put('stock/{product}', [ProductController::class, 'updateStock'])->name('api.v1.stock.replace');
 
+        Route::post('sales', [CheckoutController::class, 'cash'])->name('api.v1.sales.store');
+        Route::post('sales/cash', [CheckoutController::class, 'cash'])->name('api.v1.sales.cash');
         Route::post('sales/checkout', [CheckoutController::class, 'store'])->name('api.v1.sales.checkout');
         Route::get('sales', [SaleController::class, 'index'])->name('api.v1.sales.index');
         Route::get('sales/{sale}', [SaleController::class, 'show'])->name('api.v1.sales.show');

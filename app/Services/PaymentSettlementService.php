@@ -76,6 +76,7 @@ class PaymentSettlementService
                 'total_amount' => $paymentModel->amount,
                 'currency' => $paymentModel->currency,
                 'status' => 'completed',
+                'payment_method' => $paymentModel->payment_method,
                 'completed_at' => now(),
             ]);
 

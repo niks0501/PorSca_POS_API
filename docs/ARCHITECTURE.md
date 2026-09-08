@@ -89,13 +89,17 @@ Barcode values must be numeric and 8–64 digits and unique. Prices and stock qu
 
 `GET /inventory` returns stock for every product. `GET /inventory/{product_id}` returns one stock row. Use `?low_stock=true` to filter rows at or below their reorder level. Each row uses the same `quantity`, `reorder_level`, `status`, `low_stock`, and `out_of_stock` fields as the product `stock` object. `status` is one of `in_stock`, `low_stock`, or `out_of_stock`; an out-of-stock row has `quantity: 0` and `out_of_stock: true`.
 
-Sales deduct stock only as part of a successful payment settlement. Authorized inventory operations can set stock for product management; these writes use the same inventory row and transaction boundary as the product update.
+Sales deduct stock only as part of a successful cash sale or payment settlement. Authorized inventory operations can set stock for product management; these writes use the same inventory row and transaction boundary as the product update.
 
 ### Checkout and payments
 
-`POST /sales/checkout` creates a pending QR Ph checkout. `POST /payments` is an alias with the same request and response.
+`POST /sales` and `POST /sales/cash` complete a cash sale. `POST /sales/checkout` also completes a cash sale when `payment_method` is `cash`; without that field it retains the pending QR Ph behavior. Cash requests accept `product_id`/`productId` and `quantity` line items, plus `cash_received`/`cashReceived`. A supplied client `total` or line `unit_price` is ignored. The API reads current product prices, computes the total, locks and revalidates every inventory row immediately before writing, then records the sale, sale items, ledger transaction, and stock deductions in one database transaction.
 
-Send a unique key in the header. A JSON `idempotency_key` is accepted as a fallback:
+Cash responses contain the completed sale, authoritative `total_amount`, `cash_received`, `change_amount`, and item price snapshots. A new request returns `201`; retrying the same idempotency key and payload returns the original sale with `200`. A key reused with a different cart or cash amount returns `409`; insufficient cash returns `422`, and insufficient stock returns `409` without creating any sale, ledger row, or stock change.
+
+`POST /payments` is an alias with the same request and response as the QR checkout.
+
+Send a unique key in the header. A JSON `idempotency_key` or `idempotencyKey` is accepted as a fallback:
 
 ```http
 Idempotency-Key: mobile-cart-2026-09-08T12:00:00Z
@@ -144,11 +148,11 @@ A `paid` result creates one sale and decrements every item in one database trans
 
 ### Sales
 
-`GET /sales` lists completed sales. `GET /sales/{id}` returns a sale and its item snapshots. The list response uses the same `items` and `pagination` shape as products.
+`GET /sales` lists completed sales. `GET /sales/{id}` returns a sale and its item snapshots. Cash sales appear in both sales history and the transaction ledger. The list response uses the same `items` and `pagination` shape as products.
 
 ### Transactions
 
-`GET /transactions` lists the payment ledger. Optional filters are `payment_id` and `sale_id`. `GET /transactions/{id}` returns one ledger row. Transaction types include `payment_created`, `payment_succeeded`, `payment_failed`, and `payment_cancelled`.
+`GET /transactions` lists the payment ledger. Optional filters are `payment_id` and `sale_id`. `GET /transactions/{id}` returns one ledger row. Transaction types include `cash_sale`, `payment_created`, `payment_succeeded`, `payment_failed`, and `payment_cancelled`.
 
 ### PayMongo webhook
 
@@ -187,6 +191,7 @@ Common status codes are `401` for missing or bad token/signature, `404` for an u
 
 ## Code seams
 
+- `App\Services\CashSaleService` validates current prices and stock, then owns the atomic cash sale, ledger entry, idempotency, and deduction.
 - `App\Services\CheckoutService` validates the cart snapshot and creates one pending payment.
 - `App\Services\PaymentSettlementService` owns the atomic sale and stock commit.
 - `App\Services\Payments\PayMongoSandboxGateway` is the sandbox-only provider adapter.
