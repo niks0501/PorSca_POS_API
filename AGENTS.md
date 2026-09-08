@@ -1,14 +1,45 @@
-# PorSca API agent memory
+# PorSca API agent map
 
-- This is a Laravel 13 API. Run `composer verify` for the canonical tests and formatting check.
-- `App\Services\PaymentSettlementService` is the authoritative atomic sale and inventory boundary; keep duplicate payment and webhook delivery idempotent.
-- The public mobile contract is documented in `docs/ARCHITECTURE.md`; local setup is in `docs/SETUP.md`.
-- Staging uses the separate `staging` database connection and `php artisan qa:reset --force` only before a QA cycle. Follow `docs/STAGING.md` and `docs/QA-CYCLE.md`.
-- PayMongo is sandbox-only. Secrets and webhook verification material belong in `.env`, never source or committed Postman files.
+## What this repo is
 
-## Maintaining this file
+- This repository is the PorSca Laravel 13 REST API.
+- Laravel is the only backend and the source of truth for the store's API data and payment work.
+- This repository has no frontend; the separate Expo mobile app is the only user-facing application.
+- The API and mobile app are one release unit, even though they live in separate repositories.
+- Project-specific rules live in the linked documents below, not in this map.
 
-Keep this file for knowledge useful to almost every future agent session in this project.
-Do not repeat what the codebase already shows; point to the authoritative file or command instead.
-Prefer rewriting or pruning existing entries over appending new ones.
-When updating this file, preserve this bar for all agents and keep entries concise.
+## Canonical check
+
+Run the one required repository check:
+
+```sh
+composer verify
+```
+
+Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
+
+## Documentation map
+
+- Setup — [docs/SETUP.md](docs/SETUP.md)
+- Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Staging and promotion — [docs/STAGING.md](docs/STAGING.md)
+- Testing — [docs/TESTING.md](docs/TESTING.md)
+- Formal QA cycle — [docs/QA-CYCLE.md](docs/QA-CYCLE.md)
+- Workflow, including the billing-outage merge rule — [docs/STAGING.md](docs/STAGING.md)
+
+## Cross-repo handshake
+
+- Contract: use `porsca-mobile-api-v1` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
+- Pair check: compare the exact full API and mobile commit SHAs in the current QA record with both repositories' `staging` tips, and confirm both contract documents name the same version.
+- Promotion: promote the exact paired revisions from `staging` to `main` together, and only after a human approves the formal QA cycle.
+
+## Boundaries
+
+- Never merge or promote a release.
+- Never approve a QA round; final QA approval belongs to a human.
+- Secrets and webhook verification material stay server-side.
+- Staging is the workbench; `main` is the shop window.
+
+## Freshness
+
+A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`.
