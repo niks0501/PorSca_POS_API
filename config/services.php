@@ -40,6 +40,7 @@ return [
         'mode' => env('PAYMONGO_MODE', 'sandbox'),
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
+        'qr_expiry_seconds' => (int) env('PAYMONGO_QR_EXPIRY_SECONDS', 1800),
         'endpoint' => env('PAYMONGO_SANDBOX_ENDPOINT', 'https://api.paymongo.com/v1/payment_intents'),
     ],
 

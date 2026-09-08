@@ -142,9 +142,11 @@ The response contains:
 
 With no secret key, `provider_payment_id` starts with `sandbox_` and the QR value is a local practice value. It does not charge money. With a key, the server calls the PayMongo sandbox and still asks only for `qrph`.
 
-`GET /payments/{id}` returns the stored payment. `GET /payments/{id}/status` is an alias for that read. `POST /payments/{id}/refresh` (or `POST /payments/{id}/status`) asks the PayMongo sandbox for the latest status. The normalized statuses are `pending`, `paid`, `failed`, and `cancelled`.
+`GET /payments/{id}` returns the stored payment. `GET /payments/{id}/status` is an alias for that read. `POST /payments/{id}/refresh` (or `POST /payments/{id}/status`) asks the PayMongo sandbox for the latest status. The normalized statuses are `pending`, `paid`, `failed`, `cancelled`, and `expired`.
 
-A `paid` result creates one sale and decrements every item in one database transaction. A duplicate checkout, status refresh, or webhook cannot create another sale or deduction. `failed` and `cancelled` results create no sale and deduct nothing.
+With a configured sandbox secret, the API creates the PaymentIntent, QR Ph PaymentMethod, and attachment entirely server-side. The mobile client receives only the provider payment identifier and QR payload. Without a secret, the response is explicitly labeled as a local practice fixture and does not charge money.
+
+A `paid` result creates one sale and decrements every item in one database transaction. A duplicate checkout, status refresh, or webhook cannot create another sale or deduction. `failed`, `cancelled`, and `expired` results create no sale and deduct nothing. Provider/network uncertainty leaves a payment pending and never marks it paid.
 
 ### Sales
 
@@ -152,7 +154,7 @@ A `paid` result creates one sale and decrements every item in one database trans
 
 ### Transactions
 
-`GET /transactions` lists the payment ledger. Optional filters are `payment_id` and `sale_id`. `GET /transactions/{id}` returns one ledger row. Transaction types include `cash_sale`, `payment_created`, `payment_succeeded`, `payment_failed`, and `payment_cancelled`.
+`GET /transactions` lists the payment ledger. Optional filters are `payment_id` and `sale_id`. `GET /transactions/{id}` returns one ledger row. Transaction types include `cash_sale`, `payment_created`, `payment_succeeded`, `payment_failed`, `payment_cancelled`, and `payment_expired`.
 
 ### PayMongo webhook
 
@@ -194,6 +196,6 @@ Common status codes are `401` for missing or bad token/signature, `404` for an u
 - `App\Services\CashSaleService` validates current prices and stock, then owns the atomic cash sale, ledger entry, idempotency, and deduction.
 - `App\Services\CheckoutService` validates the cart snapshot and creates one pending payment.
 - `App\Services\PaymentSettlementService` owns the atomic sale and stock commit.
-- `App\Services\Payments\PayMongoSandboxGateway` is the sandbox-only provider adapter.
-- `App\Services\Payments\PayMongoWebhookVerifier` is the replaceable verification seam.
+- `App\Services\Payments\PayMongoSandboxGateway` is the sandbox-only provider adapter. It performs the QR Ph PaymentIntent, PaymentMethod, and attachment calls with server-only credentials, or returns a clearly labeled local practice fixture when no secret is configured.
+- `App\Services\Payments\PayMongoWebhookVerifier` is the replaceable verification seam. The current sandbox contract verifies an HMAC-SHA256 digest of the raw request body before parsing or trusting an event.
 - `App\Services\WebhookService` records event IDs and makes webhook handling idempotent.

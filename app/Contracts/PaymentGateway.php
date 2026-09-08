@@ -14,7 +14,7 @@ interface PaymentGateway
     public function createQrPayment(Payment $payment): array;
 
     /**
-     * Return a normalized local status: pending, paid, failed, or cancelled.
+     * Return a normalized local status: pending, paid, failed, cancelled, or expired.
      */
     public function status(Payment $payment): string;
 }

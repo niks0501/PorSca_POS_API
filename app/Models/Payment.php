@@ -19,7 +19,14 @@ class Payment extends Model
 
     public const CANCELLED = 'cancelled';
 
+    public const EXPIRED = 'expired';
+
     protected $guarded = [];
+
+    public static function terminalStatuses(): array
+    {
+        return [self::PAID, self::FAILED, self::CANCELLED, self::EXPIRED];
+    }
 
     protected function casts(): array
     {

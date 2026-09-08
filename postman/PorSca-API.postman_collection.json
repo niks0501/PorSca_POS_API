@@ -242,6 +242,80 @@
       }
     },
     {
+      "name": "Webhooks - Invalid signature",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-PayMongo-Signature", "value": "0000000000000000000000000000000000000000000000000000000000000000"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{{webhook_body}}"},
+        "url": "{{base_url}}/webhooks/paymongo"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('invalid webhook signature is rejected', function () { pm.response.to.have.status(401); });"
+      ]}}]
+    },
+    {
+      "name": "Webhooks - Duplicate paid event",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-PayMongo-Signature", "value": "{{webhook_signature}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{{webhook_body}}"},
+        "url": "{{base_url}}/webhooks/paymongo"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('duplicate webhook is ignored', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.duplicate).to.eql(true); });"
+      ]}}]
+    },
+    {
+      "name": "Sales - Checkout failed-state practice payment",
+      "event": [
+        {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+          "pm.collectionVariables.set('failed_idempotency_key', 'postman-failed-' + Date.now());"
+        ]}},
+        {"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('failed-state payment starts pending', function () { pm.response.to.have.status(201); pm.expect(pm.response.json().data.status).to.eql('pending'); pm.environment.set('failed_payment_id', pm.response.json().data.id); pm.environment.set('failed_provider_payment_id', pm.response.json().data.provider_payment_id); });"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Idempotency-Key", "value": "{{failed_idempotency_key}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"items\": [{\"product_id\": {{product_id}}, \"quantity\": 1}]\n}"},
+        "url": "{{base_url}}/payments"
+      }
+    },
+    {
+      "name": "Webhooks - Mark failed payment",
+      "event": [
+        {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+          "const body = { event_id: 'evt-postman-failed-' + Date.now(), type: 'payment.failed', payment_id: pm.environment.get('failed_provider_payment_id'), status: 'failed' };",
+          "const raw = JSON.stringify(body);",
+          "pm.environment.set('failed_webhook_body', raw);",
+          "pm.environment.set('failed_webhook_signature', CryptoJS.HmacSHA256(raw, pm.environment.get('webhook_secret')).toString(CryptoJS.enc.Hex));"
+        ]}},
+        {"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('failed webhook is non-destructive', function () { pm.response.to.have.status(200); const data = pm.response.json().data.payment; pm.expect(data.status).to.eql('failed'); pm.expect(data.sale_id).to.be.null; });"
+        ]}}
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "X-PayMongo-Signature", "value": "{{failed_webhook_signature}}"},
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{{failed_webhook_body}}"},
+        "url": "{{base_url}}/webhooks/paymongo"
+      }
+    },
+    {
       "name": "Payments - Get paid payment",
       "request": {
         "method": "GET",
