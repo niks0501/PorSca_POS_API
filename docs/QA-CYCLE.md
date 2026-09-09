@@ -2,9 +2,11 @@
 
 Formal QA is a paired mobile/API release check. A human gives the final approval. An agent must never approve or self-approve a release.
 
+This document is a reusable procedure and record shape, not an active cycle. Repository setup, feature work, and routine verification must not create a cycle. The designated human release owner creates a cycle record only after selecting a paired `staging` candidate and deciding to begin formal testing, then uses one cycle ID in both repositories and every defect.
+
 ## Cycle record
 
-Create one shared record before testing. Use one cycle ID in both repositories and every defect.
+Use this record shape only after the human release owner chooses the cycle ID and QA owner and before the first formal reset or test.
 
 ```yaml
 cycle_id: porsca-qa-YYYY-MM-DD-NN
@@ -30,7 +32,7 @@ Record full SHAs, not branch names alone. Record the seed version printed by `qa
 
 ## Start and preserve the cycle
 
-1. A human chooses the cycle ID and QA owner.
+1. A human release owner chooses the cycle ID and QA owner; this decision starts the formal cycle preparation.
 2. Confirm `staging` contains the intended API commit and the paired mobile build identifies its exact commit.
 3. Confirm the stable API URL returns `environment: staging`, `database: ok`, and `paymongo_mode: sandbox`.
 4. Run `php artisan qa:reset --force` before testing and record `qa-baseline-2026-02`.

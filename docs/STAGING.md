@@ -2,6 +2,8 @@
 
 Staging is for formal QA. It is not a developer scratch database.
 
+Preparing a staging environment does not create or start a formal QA cycle. A human release owner creates the cycle record only after selecting a paired mobile/API candidate and deciding to begin formal testing.
+
 ## Branch and promotion rules
 
 1. Make a feature branch from `main`.
@@ -46,7 +48,7 @@ PAYMONGO_WEBHOOK_SECRET=<server-webhook-secret>
 
 For MySQL, set `STAGING_DB_CONNECTION=mysql`, `STAGING_DB_DATABASE=porsca_staging`, and the `STAGING_DB_HOST`, `STAGING_DB_PORT`, `STAGING_DB_USERNAME`, and `STAGING_DB_PASSWORD` values. Keep all secrets on the staging host.
 
-Create or reset the database at the start of a new QA cycle:
+After the human release owner has created a new QA cycle, create or reset the database once at its start:
 
 ```sh
 touch database/porsca_staging.sqlite
