@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class PaymentLifecycleTest extends TestCase
@@ -91,8 +92,15 @@ class PaymentLifecycleTest extends TestCase
 
     private function event(string $id, string $type = 'payment.paid', string $resource = 'pay_fixture'): array
     {
-        return ['data' => ['id' => $id, 'attributes' => [
-            'type' => $type, 'resource' => ['id' => $resource, 'attributes' => ['status' => 'paid']],
+        return ['data' => ['id' => $id, 'type' => 'event', 'attributes' => [
+            'type' => $type, 'livemode' => false, 'data' => [
+                'id' => $resource, 'type' => 'payment', 'attributes' => [
+                    'payment_intent_id' => 'pi_fixture', 'amount' => 500,
+                    'currency' => 'PHP', 'status' => match ($type) {
+                        'payment.failed' => 'failed', 'qrph.expired' => 'awaiting_next_action', default => 'paid',
+                    }, 'livemode' => false,
+                ],
+            ],
         ]]];
     }
 
@@ -147,9 +155,34 @@ class PaymentLifecycleTest extends TestCase
         $event = $this->event('evt-invalid');
         $this->signed($event, time() - 301)->assertUnauthorized();
         $this->signed($event, null, true)->assertUnauthorized();
+        $raw = json_encode($event, JSON_THROW_ON_ERROR);
+        $t = time();
+        $signature = 't='.$t.',te='.hash_hmac('sha256', $t.'.'.$raw, 'fixture-webhook-secret');
+        $this->call('POST', '/api/v1/webhooks/paymongo', [], [], [], [
+            'CONTENT_TYPE' => 'application/json', 'HTTP_PAYMONGO_SIGNATURE' => $signature,
+        ], $raw."\n")->assertUnauthorized();
         $this->postJson('/api/v1/webhooks/paymongo', $event, ['X-PayMongo-Signature' => str_repeat('0', 64)])->assertUnauthorized();
-        $this->signed($this->event('evt-unknown', 'other.event'))->assertStatus(422);
+        $unknown = $this->event('evt-unknown', 'other.event');
+        unset($unknown['data']['attributes']['data']);
+        $this->signed($unknown)->assertOk()->assertJsonPath('data.payment', null);
+        $this->signed($unknown)->assertOk()->assertJsonPath('data.duplicate', true);
+        $this->assertSame(1, WebhookEvent::count());
+        $this->assertSame(0, Sale::count());
+    }
+
+    public function test_verified_malformed_event_logs_its_type_without_settling(): void
+    {
+        $product = $this->product();
+        $this->start($product);
+        Log::spy();
+        $malformed = $this->event('evt-no-resource', 'payment.paid');
+        unset($malformed['data']['attributes']['data']);
+        $this->signed($malformed)->assertStatus(422);
+        Log::shouldHaveReceived('warning')->once()->with('PayMongo event rejected', [
+            'type' => 'payment.paid', 'has_event_id' => true, 'has_resource_id' => false,
+        ]);
         $this->assertSame(0, WebhookEvent::count());
+        $this->assertSame(0, Sale::count());
     }
 
     public function test_provider_mismatch_and_pending_and_failed_never_sell(): void
@@ -163,6 +196,9 @@ class PaymentLifecycleTest extends TestCase
         }
         $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('failed'))]);
         $this->signed($this->event('evt-failed', 'payment.failed'))->assertOk()->assertJsonPath('data.payment.status', Payment::FAILED);
+        $this->signed($this->event('evt-failed', 'payment.failed'))->assertOk()->assertJsonPath('data.duplicate', true);
+        $this->assertSame(1, Transaction::where('type', 'payment_failed')->count());
+        $this->assertSame(0, Sale::count());
         $this->assertSame(5, $product->fresh()->inventory->quantity);
     }
 
@@ -196,11 +232,44 @@ class PaymentLifecycleTest extends TestCase
         ], $raw)->assertOk()->assertJsonPath('data.payment.status', Payment::EXPIRED);
         $this->assertSame(0, Sale::count());
         $this->signed($this->event('evt-raw-expiry', 'qrph.expired'))->assertOk()->assertJsonPath('data.duplicate', true);
+        $this->assertSame(1, Transaction::where('type', 'payment_expired')->count());
+        $this->assertSame(0, DB::table('payment_items')
+            ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
+            ->where('payment_items.product_id', $product->id)
+            ->where('payments.status', Payment::PENDING)
+            ->where('payments.reservation_expires_at', '>', now())
+            ->sum('payment_items.quantity'));
         $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
         $this->signed($this->event('evt-after-expiry'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID);
         $this->assertSame(1, Sale::count());
         $this->assertSame(0, $product->fresh()->inventory->quantity);
         $this->assertSame($payment->fresh()->sale_id, Sale::firstOrFail()->id);
+    }
+
+    public function test_missing_payment_alias_uses_only_a_provider_confirmed_intent_association(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $payment->update(['provider_resource_id' => null]);
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
+        $this->signed($this->event('evt-alias-missing'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID);
+        $this->assertSame(1, Sale::count());
+        $this->assertSame('pay_fixture', $payment->fresh()->provider_resource_id);
+    }
+
+    public function test_unmatched_payment_and_false_intent_association_cannot_settle(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $payment->update(['provider_resource_id' => null]);
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
+        $this->signed($this->event('evt-unmatched', 'payment.paid', 'pay_someone_else'))
+            ->assertOk()->assertJsonPath('data.payment', null);
+        $this->assertSame(0, Sale::count());
+        $noIntent = $this->event('evt-no-intent', 'payment.paid', 'pay_someone_else');
+        unset($noIntent['data']['attributes']['data']['attributes']['payment_intent_id']);
+        $this->signed($noIntent)->assertOk()->assertJsonPath('data.payment', null);
+        $this->assertSame(Payment::PENDING, $payment->fresh()->status);
     }
 
     public function test_reservations_block_cash_and_stock_reduction_and_late_paid_is_visible(): void
