@@ -118,6 +118,7 @@ class PayMongoSandboxGateway implements PaymentGateway
                 default => Payment::PENDING, // QR expiry is not intent failure.
             },
             'verified' => $verified,
+            'resource_id' => is_string($resourceId) ? $resourceId : null,
         ];
     }
 

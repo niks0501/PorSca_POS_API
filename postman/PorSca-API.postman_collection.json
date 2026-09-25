@@ -222,7 +222,7 @@
       "name": "Webhooks - Mark payment paid",
       "event": [
         {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
-          "const body = { data: { id: 'evt-postman-' + Date.now(), attributes: { type: 'payment.paid', resource: { id: pm.environment.get('provider_payment_id') } } } };",
+          "const body = { data: { id: 'evt-postman-' + Date.now(), type: 'event', attributes: { type: 'payment.paid', livemode: false, data: { id: pm.environment.get('provider_payment_id'), type: 'payment', attributes: { payment_intent_id: pm.environment.get('provider_payment_id'), status: 'paid', livemode: false } } } } };",
           "const raw = JSON.stringify(body);",
           "const timestamp = Math.floor(Date.now() / 1000);",
           "pm.environment.set('webhook_body', raw);",
@@ -297,7 +297,7 @@
       "name": "Webhooks - Mark failed payment",
       "event": [
         {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
-          "const body = { data: { id: 'evt-postman-failed-' + Date.now(), attributes: { type: 'payment.failed', resource: { id: pm.environment.get('failed_provider_payment_id') } } } };",
+          "const body = { data: { id: 'evt-postman-failed-' + Date.now(), type: 'event', attributes: { type: 'payment.failed', livemode: false, data: { id: pm.environment.get('failed_provider_payment_id'), type: 'payment', attributes: { payment_intent_id: pm.environment.get('failed_provider_payment_id'), status: 'failed', livemode: false } } } } };",
           "const raw = JSON.stringify(body);",
           "const timestamp = Math.floor(Date.now() / 1000);",
           "pm.environment.set('failed_webhook_body', raw);",

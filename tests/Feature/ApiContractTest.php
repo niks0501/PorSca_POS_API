@@ -104,7 +104,12 @@ class ApiContractTest extends TestCase
         // A local practice fixture cannot be certified paid by a webhook:
         // only a matching provider intent GET can authorize settlement.
         $payload = ['data' => ['id' => 'evt-webhook-001', 'attributes' => [
-            'type' => 'payment.paid', 'resource' => ['id' => $payment->provider_payment_id],
+            'type' => 'payment.paid', 'livemode' => false, 'data' => [
+                'id' => $payment->provider_payment_id, 'type' => 'payment', 'attributes' => [
+                    'payment_intent_id' => $payment->provider_payment_id, 'amount' => 500,
+                    'currency' => 'PHP', 'status' => 'paid', 'livemode' => false,
+                ],
+            ],
         ]]];
         $timestamp = time();
         $signature = 't='.$timestamp.',te='.hash_hmac('sha256', $timestamp.'.'.json_encode($payload), $this->webhookSecret);

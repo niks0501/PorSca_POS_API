@@ -38,7 +38,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 - Never merge or promote a release.
 - Never approve a QA round; final QA approval belongs to a human.
-- Secrets and webhook verification material stay server-side; use [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#paymongo-webhook) for the signed sandbox protocol. Real PayMongo QA needs operator-owned credentials and a stable webhook URL; the mobile Leave payment action is a separate stage C follow-up.
+- Secrets and webhook verification material stay server-side; use [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#paymongo-webhook) for the signed sandbox protocol and the documented nested event resource (`data.attributes.data`). Real PayMongo QA needs operator-owned credentials and a stable webhook URL; the mobile Leave payment action is a separate stage C follow-up.
 - Staging is the workbench; `main` is the shop window.
 
 ## Freshness
