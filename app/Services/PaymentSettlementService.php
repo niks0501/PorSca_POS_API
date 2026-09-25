@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Exceptions\ApiException;
 use App\Exceptions\InsufficientStock;
-use App\Models\Inventory;
 use App\Models\Payment;
 use App\Models\Sale;
 use App\Models\Transaction;
@@ -12,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 
 class PaymentSettlementService
 {
+    public function __construct(private readonly ReservedStock $stock) {}
+
     public function settle(Payment|int $payment, string $status, ?string $providerEventId = null, array $metadata = []): Payment
     {
         $status = strtolower($status);
@@ -28,7 +29,8 @@ class PaymentSettlementService
 
             // A terminal result is never downgraded or reprocessed. This is the
             // primary guard against duplicate webhook/payment delivery.
-            if (in_array($paymentModel->status, Payment::terminalStatuses(), true)) {
+            if (in_array($paymentModel->status, [Payment::PAID, Payment::PAID_UNFULFILLED], true)
+                || (in_array($paymentModel->status, Payment::terminalStatuses(), true) && $status !== Payment::PAID)) {
                 return $paymentModel->fresh()->load('items.product', 'sale');
             }
 
@@ -54,22 +56,17 @@ class PaymentSettlementService
             $lockedInventory = [];
             try {
                 foreach ($items as $item) {
-                    $inventory = Inventory::query()->where('product_id', $item->product_id)->lockForUpdate()->first();
-                    if ($inventory === null || $inventory->quantity < $item->quantity) {
-                        throw new InsufficientStock($item->product->name);
-                    }
-                    $lockedInventory[$item->product_id] = $inventory;
+                    $lockedInventory[$item->product_id] = $this->stock->lockAndCheck($item->product_id, $item->quantity, $item->product->name, $paymentModel->id);
                 }
             } catch (InsufficientStock $exception) {
-                // The provider may have reported success, but a sale is only
-                // committed when every stock decrement can commit with it.
+                // Money was received: surface an explicit reconciliation exception, never a failed charge.
                 $paymentModel->update([
-                    'status' => Payment::FAILED,
-                    'failure_reason' => 'insufficient_stock',
+                    'status' => Payment::PAID_UNFULFILLED,
+                    'paid_at' => now(),
+                    'failure_reason' => 'stock_reconciliation_required',
                 ]);
-                $this->recordTransaction($paymentModel, 'payment_failed', Payment::FAILED, $providerEventId, [
-                    'failure_reason' => 'insufficient_stock',
-                    'message' => $exception->getMessage(),
+                $this->recordTransaction($paymentModel, 'payment_paid_unfulfilled', Payment::PAID_UNFULFILLED, $providerEventId, [
+                    'reason' => 'stock_reconciliation_required',
                 ]);
 
                 return $paymentModel->fresh()->load('items.product', 'sale');

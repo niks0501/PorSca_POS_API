@@ -24,7 +24,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Staging and promotion — [docs/STAGING.md](docs/STAGING.md)
 - Testing — [docs/TESTING.md](docs/TESTING.md)
-- Cash-sale and QR payment contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#checkout-and-payments)
+- Cash-sale and QR payment contract, including sandbox reservations and paid-unfulfilled reconciliation — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#checkout-and-payments)
 - Formal QA cycle — [docs/QA-CYCLE.md](docs/QA-CYCLE.md)
 - Workflow, including the billing-outage merge rule — [docs/STAGING.md](docs/STAGING.md)
 
@@ -38,7 +38,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 - Never merge or promote a release.
 - Never approve a QA round; final QA approval belongs to a human.
-- Secrets and webhook verification material stay server-side.
+- Secrets and webhook verification material stay server-side; use [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#paymongo-webhook) for the signed sandbox protocol. Real PayMongo QA needs operator-owned credentials and a stable webhook URL; the mobile Leave payment action is a separate stage C follow-up.
 - Staging is the workbench; `main` is the shop window.
 
 ## Freshness

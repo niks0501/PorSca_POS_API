@@ -4,25 +4,30 @@ namespace App\Services\Payments;
 
 use Illuminate\Http\Request;
 
-/**
- * Minimal HMAC verifier seam for the sandbox webhook endpoint.
- *
- * PayMongo can change its signed-header format; the production adapter should
- * replace this class without changing webhook processing. Until then the
- * endpoint accepts X-PayMongo-Signature as a hex SHA-256 HMAC of the raw body.
- */
 class PayMongoWebhookVerifier
 {
     public function verify(Request $request): bool
     {
         $secret = (string) config('services.paymongo.webhook_secret');
-        $provided = trim((string) $request->header('X-PayMongo-Signature', ''));
-        if ($secret === '' || $provided === '' || strlen($provided) !== 64 || ! ctype_xdigit($provided)) {
+        $header = (string) $request->header('Paymongo-Signature', '');
+        if ($secret === '' || $header === '') {
+            return false;
+        }
+        $parts = [];
+        foreach (explode(',', $header) as $segment) {
+            $pair = explode('=', trim($segment), 2);
+            if (count($pair) !== 2 || isset($parts[$pair[0]])) {
+                return false;
+            }
+            $parts[$pair[0]] = $pair[1];
+        }
+        $timestamp = $parts['t'] ?? '';
+        $signature = $parts['te'] ?? '';
+        if (! preg_match('/^\d{10}$/D', $timestamp) || abs(time() - (int) $timestamp) > 300
+            || ! preg_match('/^[a-fA-F0-9]{64}$/D', $signature)) {
             return false;
         }
 
-        $expected = hash_hmac('sha256', $request->getContent(), $secret);
-
-        return hash_equals($expected, strtolower($provided));
+        return hash_equals(hash_hmac('sha256', $timestamp.'.'.$request->getContent(), $secret), strtolower($signature));
     }
 }

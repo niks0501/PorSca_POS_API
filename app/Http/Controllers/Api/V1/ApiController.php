@@ -84,6 +84,7 @@ abstract class ApiController extends Controller
             'sale_id' => $payment->sale_id,
             'failure_reason' => $payment->failure_reason,
             'paid_at' => $payment->paid_at?->toISOString(),
+            'reservation_expires_at' => $payment->reservation_expires_at?->toISOString(),
             'items' => $payment->relationLoaded('items') ? $payment->items->map(fn ($item) => [
                 'product_id' => $item->product_id,
                 'sku' => $item->product?->sku,

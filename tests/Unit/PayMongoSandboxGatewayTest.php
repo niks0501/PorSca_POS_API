@@ -24,7 +24,7 @@ class PayMongoSandboxGatewayTest extends TestCase
 
     public function test_configured_key_creates_a_qrph_payment_and_normalizes_status(): void
     {
-        $secret = bin2hex(random_bytes(16));
+        $secret = 'sk_test_fixture';
         config([
             'services.paymongo.mode' => 'sandbox',
             'services.paymongo.secret_key' => $secret,
@@ -38,20 +38,21 @@ class PayMongoSandboxGatewayTest extends TestCase
                 ],
             ], 201),
             'https://api.paymongo.test/v1/payment_intents/pi_test_001' => Http::response([
-                'data' => ['attributes' => ['status' => 'succeeded']],
+                'data' => ['id' => 'pi_test_001', 'attributes' => ['status' => 'succeeded', 'amount' => 1000, 'currency' => 'PHP', 'livemode' => false]],
             ]),
         ]);
         $payment = new Payment([
             'amount' => 1000,
             'currency' => 'PHP',
             'id' => 10,
-            'provider_payment_id' => 'pi_test_001',
+            'provider_operation_key' => 'op_fixture',
         ]);
 
         $gateway = new PayMongoSandboxGateway;
         $created = $gateway->createQrPayment($payment);
         $this->assertSame('pi_test_001', $created['provider_payment_id']);
         $this->assertSame('qr://test', $created['qr_payload']);
+        $payment->provider_payment_id = $created['provider_payment_id'];
         $this->assertSame(Payment::PAID, $gateway->status($payment));
 
         Http::assertSent(fn ($request) => $request->hasHeader('Authorization') && str_contains($request->body(), 'qrph'));
