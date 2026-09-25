@@ -5,8 +5,6 @@ namespace App\Services;
 use App\Exceptions\ApiException;
 use App\Exceptions\IdempotencyConflict;
 use App\Exceptions\InsufficientCash;
-use App\Exceptions\InsufficientStock;
-use App\Models\Inventory;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
@@ -16,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class CashSaleService
 {
+    public function __construct(private readonly ReservedStock $stock) {}
+
     public function create(string $idempotencyKey, array $requestedItems, int $cashReceived): Sale
     {
         $items = $this->normalizeItems($requestedItems);
@@ -74,17 +74,7 @@ class CashSaleService
                 // immediately before any sale or stock write is made.
                 $lockedInventory = [];
                 foreach ($items as $productId => $quantity) {
-                    $inventory = Inventory::query()
-                        ->where('product_id', $productId)
-                        ->lockForUpdate()
-                        ->first();
-
-                    $product = $products->get($productId);
-                    if ($inventory === null || $inventory->quantity < $quantity) {
-                        throw new InsufficientStock($product->name);
-                    }
-
-                    $lockedInventory[$productId] = $inventory;
+                    $lockedInventory[$productId] = $this->stock->lockAndCheck($productId, $quantity, $products->get($productId)->name);
                 }
 
                 $changeAmount = $cashReceived - $total;

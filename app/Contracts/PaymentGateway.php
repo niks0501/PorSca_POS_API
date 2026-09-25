@@ -17,4 +17,7 @@ interface PaymentGateway
      * Return a normalized local status: pending, paid, failed, cancelled, or expired.
      */
     public function status(Payment $payment): string;
+
+    /** Provider GET evidence: status is actionable only when ID, amount, PHP and sandbox mode match. */
+    public function inspect(Payment $payment): array;
 }

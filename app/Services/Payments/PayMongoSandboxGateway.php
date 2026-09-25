@@ -15,137 +15,139 @@ class PayMongoSandboxGateway implements PaymentGateway
     public function createQrPayment(Payment $payment): array
     {
         $this->assertSandbox();
-
         $secret = (string) config('services.paymongo.secret_key');
         if ($secret === '') {
             return [
                 'provider_payment_id' => 'sandbox_'.Str::uuid(),
                 'qr_payload' => 'https://sandbox.paymongo.test/qr/'.Str::uuid(),
                 'checkout_url' => null,
-                'metadata' => [
-                    'driver' => 'local-sandbox-fixture',
-                    'payment_method' => 'qrph',
-                ],
+                'metadata' => ['driver' => 'local-sandbox-fixture', 'payment_method' => 'qrph'],
             ];
+        }
+        if (! str_starts_with($secret, 'sk_test_') || $payment->amount < 1 || $payment->amount > 4294967295 || $payment->currency !== 'PHP' || blank($payment->provider_operation_key)) {
+            throw new PaymentGatewayException('Invalid sandbox payment configuration.');
         }
 
         $endpoint = rtrim((string) config('services.paymongo.endpoint'), '/');
-        $intentResponse = $this->send(fn (): Response => Http::withBasicAuth($secret, '')
-            ->acceptJson()
-            ->connectTimeout(5)
-            ->timeout(15)
-            ->post($endpoint, [
-                'data' => [
-                    'attributes' => [
-                        'amount' => $payment->amount,
-                        'currency' => $payment->currency,
-                        'payment_method_allowed' => ['qrph'],
-                        'description' => 'PorSca sale '.$payment->id,
-                    ],
-                ],
-            ]));
-
-        $intentAttributes = (array) $intentResponse->json('data.attributes', []);
-        $providerId = (string) $intentResponse->json('data.id');
-        if ($providerId === '') {
-            throw new PaymentGatewayException('PayMongo sandbox returned an invalid payment response.');
+        $providerId = $payment->provider_payment_id;
+        if ($providerId === null) {
+            $intent = $this->request('post', $endpoint, [
+                'data' => ['attributes' => [
+                    'amount' => $payment->amount, 'currency' => 'PHP',
+                    'payment_method_allowed' => ['qrph'], 'description' => 'PorSca sale '.$payment->id,
+                ]],
+            ], $payment->provider_operation_key.':intent');
+            $providerId = (string) $intent->json('data.id');
+            if ($providerId === '') {
+                throw new PaymentGatewayException('PayMongo returned an invalid payment intent.');
+            }
+            $payment->update(['provider_payment_id' => $providerId]);
+            $intentAttributes = (array) $intent->json('data.attributes', []);
+        } else {
+            $intentAttributes = (array) $this->request('get', $endpoint.'/'.$providerId)->json('data.attributes', []);
+        }
+        // Recover an already attached intent before attempting to attach again.
+        $qr = $this->qr($intentAttributes);
+        $methodId = $payment->provider_method_id;
+        if ($qr === null) {
+            if ($methodId === null) {
+                $method = $this->request('post', $this->resourceEndpoint($endpoint, 'payment_methods'), [
+                    'data' => ['attributes' => [
+                        'type' => 'qrph', 'expiry_seconds' => (int) config('services.paymongo.qr_expiry_seconds', 1800),
+                    ]],
+                ], $payment->provider_operation_key.':method');
+                $methodId = (string) $method->json('data.id');
+                if ($methodId === '') {
+                    throw new PaymentGatewayException('PayMongo returned an invalid QR Ph method.');
+                }
+                $payment->update(['provider_method_id' => $methodId]);
+            }
+            $attributes = ['payment_method' => $methodId];
+            if (is_string($intentAttributes['client_key'] ?? null)) {
+                $attributes['client_key'] = $intentAttributes['client_key'];
+            }
+            $attached = $this->request('post', $endpoint.'/'.$providerId.'/attach', [
+                'data' => ['attributes' => $attributes],
+            ], $payment->provider_operation_key.':attach');
+            $intentAttributes = (array) $attached->json('data.attributes', []);
+            $qr = $this->qr($intentAttributes);
+        }
+        if ($qr === null) {
+            throw new PaymentGatewayException('PayMongo did not return a QR Ph image.');
+        }
+        $resourceId = data_get($intentAttributes, 'payment.id') ?? data_get($intentAttributes, 'payment');
+        if (! is_string($resourceId)) {
+            $resourceId = null;
+        }
+        if ($resourceId !== null) {
+            $payment->update(['provider_resource_id' => $resourceId]);
         }
 
-        // A fixture or a compatible provider adapter may return the QR on the
-        // intent response. Prefer it when present, while the normal PayMongo
-        // flow below creates and attaches a QR Ph payment method server-side.
-        $directQr = $this->qrPayload($intentAttributes);
-        if ($directQr !== null) {
-            return [
-                'provider_payment_id' => $providerId,
-                'qr_payload' => $directQr,
-                'checkout_url' => $this->checkoutUrl($intentAttributes),
-                'metadata' => $this->providerMetadata($providerId, $intentAttributes),
-            ];
-        }
-
-        $paymentMethodEndpoint = $this->resourceEndpoint($endpoint, 'payment_methods');
-        $paymentMethodAttributes = [
-            'type' => 'qrph',
+        // PayMongo test_url is intentionally not stored or returned to cashiers.
+        return [
+            'provider_payment_id' => $providerId,
+            'qr_payload' => $qr,
+            'checkout_url' => null,
+            'metadata' => ['driver' => 'paymongo-sandbox', 'provider_status' => $intentAttributes['status'] ?? null],
         ];
-        $expirySeconds = (int) config('services.paymongo.qr_expiry_seconds', 1800);
-        if ($expirySeconds > 0) {
-            $paymentMethodAttributes['expiry_seconds'] = $expirySeconds;
-        }
+    }
 
-        $paymentMethodResponse = $this->send(fn (): Response => Http::withBasicAuth($secret, '')
-            ->acceptJson()
-            ->connectTimeout(5)
-            ->timeout(15)
-            ->post($paymentMethodEndpoint, [
-                'data' => ['attributes' => $paymentMethodAttributes],
-            ]));
-        $paymentMethodId = (string) $paymentMethodResponse->json('data.id');
-        if ($paymentMethodId === '') {
-            throw new PaymentGatewayException('PayMongo sandbox returned an invalid QR Ph payment method.');
+    public function inspect(Payment $payment): array
+    {
+        $this->assertSandbox();
+        if (blank($payment->provider_payment_id) || str_starts_with((string) $payment->provider_payment_id, 'sandbox_')) {
+            return ['status' => Payment::PENDING, 'verified' => false];
         }
-
-        $attachPayload = [
-            'data' => [
-                'attributes' => [
-                    'payment_method' => $paymentMethodId,
-                ],
-            ],
-        ];
-        $clientKey = $this->firstString($intentAttributes, ['client_key']);
-        if ($clientKey !== null) {
-            $attachPayload['data']['attributes']['client_key'] = $clientKey;
-        }
-
-        $attachResponse = $this->send(fn (): Response => Http::withBasicAuth($secret, '')
-            ->acceptJson()
-            ->connectTimeout(5)
-            ->timeout(15)
-            ->post($endpoint.'/'.$providerId.'/attach', $attachPayload));
-        $attachedAttributes = (array) $attachResponse->json('data.attributes', []);
-        $qrPayload = $this->qrPayload($attachedAttributes);
-        if ($qrPayload === null) {
-            throw new PaymentGatewayException('PayMongo sandbox did not return a QR Ph payload.');
+        $response = $this->request('get', rtrim((string) config('services.paymongo.endpoint'), '/').'/'.$payment->provider_payment_id);
+        $attributes = (array) $response->json('data.attributes', []);
+        $providerId = (string) $response->json('data.id');
+        $status = strtolower((string) ($attributes['status'] ?? ''));
+        $resourceId = data_get($attributes, 'payment.id') ?? data_get($attributes, 'payment');
+        $verified = $providerId === $payment->provider_payment_id
+            && ($attributes['amount'] ?? null) === $payment->amount
+            && ($attributes['currency'] ?? null) === 'PHP'
+            && ($attributes['livemode'] ?? null) === false;
+        if ($verified && is_string($resourceId) && $resourceId !== '' && $payment->provider_resource_id === null) {
+            $payment->update(['provider_resource_id' => $resourceId]);
         }
 
         return [
-            'provider_payment_id' => $providerId,
-            'qr_payload' => $qrPayload,
-            'checkout_url' => $this->checkoutUrl($attachedAttributes),
-            'metadata' => array_merge(
-                $this->providerMetadata($providerId, $intentAttributes),
-                [
-                    'provider_payment_method_id' => $paymentMethodId,
-                    'provider_payment_resource_id' => $this->paymentResourceId($attachedAttributes),
-                    'provider_status' => $this->firstString($attachedAttributes, ['status']),
-                ],
-            ),
+            'status' => match ($status) {
+                'succeeded', 'paid' => Payment::PAID,
+                'failed', 'cancelled', 'canceled' => Payment::FAILED,
+                default => Payment::PENDING, // QR expiry is not intent failure.
+            },
+            'verified' => $verified,
         ];
     }
 
     public function status(Payment $payment): string
     {
-        $this->assertSandbox();
+        $result = $this->inspect($payment);
 
-        if (blank($payment->provider_payment_id)) {
-            return Payment::PENDING;
-        }
+        return $result['verified'] ? $result['status'] : Payment::PENDING;
+    }
 
+    private function request(string $method, string $url, ?array $payload = null, ?string $key = null): Response
+    {
         $secret = (string) config('services.paymongo.secret_key');
-        if ($secret === '') {
-            return Payment::PENDING;
+        if (! str_starts_with($secret, 'sk_test_')) {
+            throw new PaymentGatewayException('PayMongo sandbox credentials are unavailable.');
+        }
+        $request = Http::withBasicAuth($secret, '')->acceptJson()->connectTimeout(5)->timeout(15);
+        if ($key !== null) {
+            $request = $request->withHeaders(['Idempotency-Key' => $key]);
+        }
+        try {
+            $response = $method === 'post' ? $request->post($url, $payload) : $request->get($url);
+        } catch (ConnectionException) {
+            throw new PaymentGatewayException('PayMongo sandbox could not be reached.');
+        }
+        if ($response->failed()) {
+            throw new PaymentGatewayException('PayMongo sandbox rejected the payment request.');
         }
 
-        $endpoint = rtrim((string) config('services.paymongo.endpoint'), '/');
-        $response = $this->send(fn (): Response => Http::withBasicAuth($secret, '')
-            ->acceptJson()
-            ->connectTimeout(5)
-            ->timeout(15)
-            ->get($endpoint.'/'.$payment->provider_payment_id));
-
-        $status = strtolower((string) data_get($response->json(), 'data.attributes.status', Payment::PENDING));
-
-        return $this->normalizeStatus($status);
+        return $response;
     }
 
     private function assertSandbox(): void
@@ -155,90 +157,15 @@ class PayMongoSandboxGateway implements PaymentGateway
         }
     }
 
-    private function send(callable $request): Response
-    {
-        try {
-            $response = $request();
-        } catch (ConnectionException) {
-            throw new PaymentGatewayException('PayMongo sandbox could not be reached.');
-        }
-
-        if ($response->failed()) {
-            throw new PaymentGatewayException('PayMongo sandbox rejected the payment request.');
-        }
-
-        return $response;
-    }
-
-    private function normalizeStatus(string $status): string
-    {
-        return match ($status) {
-            'paid', 'succeeded', 'successful' => Payment::PAID,
-            'failed', 'declined' => Payment::FAILED,
-            'cancelled', 'canceled' => Payment::CANCELLED,
-            'expired', 'qrph_expired' => Payment::EXPIRED,
-            default => Payment::PENDING,
-        };
-    }
-
     private function resourceEndpoint(string $endpoint, string $resource): string
     {
-        $replaced = preg_replace('#/payment_intents/?$#', '/'.$resource, $endpoint);
-
-        return $replaced !== null && $replaced !== $endpoint
-            ? $replaced
-            : rtrim($endpoint, '/').'/'.$resource;
+        return (string) preg_replace('#/payment_intents$#', '/'.$resource, $endpoint);
     }
 
-    private function qrPayload(array $attributes): ?string
+    private function qr(array $attributes): ?string
     {
-        return $this->firstString($attributes, [
-            'qr_code',
-            'qr_payload',
-            'qrph_code',
-            'next_action.code.image_url',
-        ]);
-    }
-
-    private function checkoutUrl(array $attributes): ?string
-    {
-        return $this->firstString($attributes, [
-            'checkout_url',
-            'url',
-            'next_action.redirect.url',
-        ]);
-    }
-
-    private function paymentResourceId(array $attributes): ?string
-    {
-        foreach (['payment', 'payment_id'] as $key) {
+        foreach (['next_action.code.image_url', 'qr_code', 'qr_payload'] as $key) {
             $value = data_get($attributes, $key);
-            if (is_string($value) && $value !== '') {
-                return $value;
-            }
-            if (is_array($value) && isset($value['id']) && is_string($value['id']) && $value['id'] !== '') {
-                return $value['id'];
-            }
-        }
-
-        return null;
-    }
-
-    private function providerMetadata(string $providerId, array $attributes): array
-    {
-        return array_filter([
-            'driver' => 'paymongo-sandbox',
-            'payment_method' => 'qrph',
-            'provider_payment_intent_id' => $providerId,
-            'provider_payment_resource_id' => $this->paymentResourceId($attributes),
-            'provider_status' => $this->firstString($attributes, ['status']),
-        ], static fn (mixed $value): bool => $value !== null && $value !== '');
-    }
-
-    private function firstString(array $values, array $keys): ?string
-    {
-        foreach ($keys as $key) {
-            $value = data_get($values, $key);
             if (is_string($value) && $value !== '') {
                 return $value;
             }

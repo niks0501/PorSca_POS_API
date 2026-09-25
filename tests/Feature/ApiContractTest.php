@@ -101,24 +101,21 @@ class ApiContractTest extends TestCase
         $payment = app(CheckoutService::class)->create('webhook-001', [
             ['product_id' => $product->id, 'quantity' => 1],
         ]);
-        $payload = [
-            'event_id' => 'evt-webhook-001',
-            'type' => 'payment.paid',
-            'payment_id' => $payment->provider_payment_id,
-            'status' => 'paid',
-        ];
-        $signature = hash_hmac('sha256', json_encode($payload), $this->webhookSecret);
+        // A local practice fixture cannot be certified paid by a webhook:
+        // only a matching provider intent GET can authorize settlement.
+        $payload = ['data' => ['id' => 'evt-webhook-001', 'attributes' => [
+            'type' => 'payment.paid', 'resource' => ['id' => $payment->provider_payment_id],
+        ]]];
+        $timestamp = time();
+        $signature = 't='.$timestamp.',te='.hash_hmac('sha256', $timestamp.'.'.json_encode($payload), $this->webhookSecret);
 
-        $this->postJson('/api/v1/webhooks/paymongo', $payload, ['X-PayMongo-Signature' => $signature])
-            ->assertOk()
-            ->assertJsonPath('data.duplicate', false)
-            ->assertJsonPath('data.payment.status', Payment::PAID);
-        $this->postJson('/api/v1/webhooks/paymongo', $payload, ['X-PayMongo-Signature' => $signature])
-            ->assertOk()
-            ->assertJsonPath('data.duplicate', true);
-
-        $this->assertSame(1, Sale::count());
-        $this->assertSame(3, $product->inventory()->value('quantity'));
+        $this->postJson('/api/v1/webhooks/paymongo', $payload, ['Paymongo-Signature' => $signature])
+            ->assertOk()->assertJsonPath('data.duplicate', false)
+            ->assertJsonPath('data.payment.status', Payment::PENDING);
+        $this->postJson('/api/v1/webhooks/paymongo', $payload, ['Paymongo-Signature' => $signature])
+            ->assertOk()->assertJsonPath('data.duplicate', false);
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(4, $product->inventory()->value('quantity'));
     }
 
     public function test_invalid_webhook_signature_and_invalid_checkout_are_rejected(): void

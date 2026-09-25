@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Inventory;
 use App\Models\Product;
+use App\Services\ReservedStock;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,8 @@ use Illuminate\Validation\Rule;
 
 class ProductController extends ApiController
 {
+    public function __construct(private readonly ReservedStock $stock) {}
+
     public function index(Request $request)
     {
         $search = trim((string) $request->input('search', $request->input('name', '')));
@@ -120,6 +123,7 @@ class ProductController extends ApiController
                 ]);
             } else {
                 if (array_key_exists('stock', $validated)) {
+                    $this->stock->assertStockFloor($product->id, $validated['stock'], $product->name);
                     $inventory->quantity = $validated['stock'];
                 }
                 if (array_key_exists('reorder_level', $validated)) {
@@ -164,6 +168,7 @@ class ProductController extends ApiController
                     'reorder_level' => $validated['reorder_level'] ?? 0,
                 ]);
             } else {
+                $this->stock->assertStockFloor($product->id, $validated['stock'], $product->name);
                 $inventory->quantity = $validated['stock'];
                 if (array_key_exists('reorder_level', $validated)) {
                     $inventory->reorder_level = $validated['reorder_level'];

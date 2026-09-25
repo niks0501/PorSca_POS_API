@@ -24,7 +24,7 @@ The Laravel tests cover:
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, webhook settlement, payment read again, sales, and transactions.
+The collection runs the HTTP contract in order: health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, signed practice webhook rejection of unsupported settlement, payment read again, sales, and transactions.
 
 Required tools:
 
@@ -54,7 +54,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: Newman reports 24 requests and all assertions passing. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, settles a QR Ph practice payment exactly once, and verifies invalid, duplicate, and failed webhook behavior.
+Success: Newman reports 24 requests and all assertions passing. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `api_token`, and `webhook_secret` from the staging machine's environment. Never commit the copy:
 

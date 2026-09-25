@@ -21,11 +21,13 @@ class Payment extends Model
 
     public const EXPIRED = 'expired';
 
+    public const PAID_UNFULFILLED = 'paid_unfulfilled';
+
     protected $guarded = [];
 
     public static function terminalStatuses(): array
     {
-        return [self::PAID, self::FAILED, self::CANCELLED, self::EXPIRED];
+        return [self::PAID, self::PAID_UNFULFILLED, self::FAILED, self::CANCELLED, self::EXPIRED];
     }
 
     protected function casts(): array
@@ -34,6 +36,7 @@ class Payment extends Model
             'amount' => 'integer',
             'provider_metadata' => 'array',
             'paid_at' => 'datetime',
+            'reservation_expires_at' => 'datetime',
         ];
     }
 

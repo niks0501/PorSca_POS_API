@@ -115,7 +115,7 @@ Content-Type: application/json
 }
 ```
 
-A new checkout returns `201`. Repeating the same key and same cart returns the original payment with `200`. Reusing a key for a different cart returns `409`.
+A new checkout returns `201`. Repeating the same key and same cart returns the original payment with `200`. Reusing a key for a different cart returns `409`. The API ignores client totals/prices, validates positive integer PHP centavos (up to the provider's unsigned-32-bit amount limit) and quantities, snapshots product prices and reserves stock before provider I/O. If PayMongo times out, the attempt stays pending with the same durable provider operation keys; retry the **same** checkout key and cart. Never use a new key merely to recover an uncertain charge.
 
 The response contains:
 
@@ -135,6 +135,7 @@ The response contains:
     "sale_id": null,
     "failure_reason": null,
     "paid_at": null,
+    "reservation_expires_at": "2026-09-25T16:30:00.000000Z",
     "items": []
   }
 }
@@ -142,11 +143,11 @@ The response contains:
 
 With no secret key, `provider_payment_id` starts with `sandbox_` and the QR value is a local practice value. It does not charge money. With a key, the server calls the PayMongo sandbox and still asks only for `qrph`.
 
-`GET /payments/{id}` returns the stored payment. `GET /payments/{id}/status` is an alias for that read. `POST /payments/{id}/refresh` (or `POST /payments/{id}/status`) asks the PayMongo sandbox for the latest status. The normalized statuses are `pending`, `paid`, `failed`, `cancelled`, and `expired`.
+`GET /payments/{id}` returns the stored payment. `GET /payments/{id}/status` is an alias for that read. `POST /payments/{id}/refresh` (or `POST /payments/{id}/status`) asks the PayMongo sandbox for the latest status; **it is not a cancellation endpoint**. The cashier may leave the QR screen, but this does not cancel a payable attempt. Statuses are `pending`, `paid`, `failed`, `expired`, and `paid_unfulfilled` (money received but stock unavailable: operator reconciliation/refund required). `cancelled` remains readable for legacy attempts; no new local cancel action is provided. Mobile's Leave payment wording is stage C follow-up.
 
 With a configured sandbox secret, the API creates the PaymentIntent, QR Ph PaymentMethod, and attachment entirely server-side. The mobile client receives only the provider payment identifier and QR payload. Without a secret, the response is explicitly labeled as a local practice fixture and does not charge money.
 
-A `paid` result creates one sale and decrements every item in one database transaction. A duplicate checkout, status refresh, or webhook cannot create another sale or deduction. `failed`, `cancelled`, and `expired` results create no sale and deduct nothing. Provider/network uncertainty leaves a payment pending and never marks it paid.
+Reservations expire at the configured QR lifetime (60–9000 seconds). Every cash sale, QR checkout and stock-reducing product/inventory edit locks inventory and respects other active reservations. Verified `qrph.expired` releases the reservation; an intent returning to `awaiting_payment_method` is not evidence of failed money movement. An authoritative paid intent matching the immutable ID, amount, PHP and sandbox mode commits payment, sale, items, success ledger and deduction together. Duplicate/out-of-order webhook and refresh return the same sale; late failure cannot downgrade paid. If paid arrives after expiry/release and stock cannot be fulfilled, status becomes `paid_unfulfilled`, with no sale or deduction and a reconciliation ledger row; manual refund or inventory resolution is required. Provider/network uncertainty remains pending, not paid. An unverified local practice fixture **cannot** settle as paid. A QR image is returned in `qr_payload` (`next_action.code.image_url`); provider `test_url` is operator-only and never returned.
 
 ### Sales
 
@@ -154,24 +155,11 @@ A `paid` result creates one sale and decrements every item in one database trans
 
 ### Transactions
 
-`GET /transactions` lists the payment ledger. Optional filters are `payment_id` and `sale_id`. `GET /transactions/{id}` returns one ledger row. Transaction types include `cash_sale`, `payment_created`, `payment_succeeded`, `payment_failed`, `payment_cancelled`, and `payment_expired`.
+`GET /transactions` lists the payment ledger. Optional filters are `payment_id` and `sale_id`. `GET /transactions/{id}` returns one ledger row. Transaction types include `cash_sale`, `payment_created`, `payment_succeeded`, `payment_failed`, `payment_expired`, and `payment_paid_unfulfilled`.
 
 ### PayMongo webhook
 
-`POST /webhooks/paymongo` is public to the network but requires the provider signature. This launch slice uses the verification seam in `App\Services\Payments\PayMongoWebhookVerifier`: send an HMAC SHA-256 hex digest of the raw JSON body in `X-PayMongo-Signature`, using server-only `PAYMONGO_WEBHOOK_SECRET`.
-
-Example fixture body:
-
-```json
-{
-  "event_id": "evt-001",
-  "type": "payment.paid",
-  "payment_id": "sandbox_...",
-  "status": "paid"
-}
-```
-
-PayMongo's envelope is also accepted. Its event ID, type, resource ID, and status are extracted from the `data.attributes.resource` fields. The event ID is unique. Repeating a signed event returns `200` with `duplicate: true` and does not settle again. Replace the verifier implementation when the final PayMongo signed-header format is selected; keep the same service seam and tests.
+`POST /webhooks/paymongo` verifies the **raw request bytes before parsing**. The `Paymongo-Signature` header contains `t=<Unix seconds>,te=<hex test HMAC>` (optional `li` is ignored in sandbox). HMAC-SHA256 signs `t + '.' + rawBody` with the server-only `PAYMONGO_WEBHOOK_SECRET`; reject malformed headers, missing `te`, stale/future timestamps outside five minutes and invalid signatures with `401`. Only `payment.paid`, `payment.failed`, `qrph.expired` envelopes are accepted, with unique `data.id`, `data.attributes.type`, and `data.attributes.resource.id`. Intent and payment resource IDs are indexed. The server retrieves the matching intent and checks authoritative ID, amount, currency `PHP`, `livemode=false`, and status before settlement. Unknown IDs are acknowledged with a recorded error; duplicates return `200`, `duplicate: true` and the current payment/sale. Webhook payload persistence is limited to event type and IDs, not secrets or simulator URLs.
 
 ## Error shape
 
@@ -197,5 +185,5 @@ Common status codes are `401` for missing or bad token/signature, `404` for an u
 - `App\Services\CheckoutService` validates the cart snapshot and creates one pending payment.
 - `App\Services\PaymentSettlementService` owns the atomic sale and stock commit.
 - `App\Services\Payments\PayMongoSandboxGateway` is the sandbox-only provider adapter. It performs the QR Ph PaymentIntent, PaymentMethod, and attachment calls with server-only credentials, or returns a clearly labeled local practice fixture when no secret is configured.
-- `App\Services\Payments\PayMongoWebhookVerifier` is the replaceable verification seam. The current sandbox contract verifies an HMAC-SHA256 digest of the raw request body before parsing or trusting an event.
+- `App\Services\Payments\PayMongoWebhookVerifier` verifies timestamped test-mode PayMongo signatures before parsing or trusting an event.
 - `App\Services\WebhookService` records event IDs and makes webhook handling idempotent.
