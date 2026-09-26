@@ -25,6 +25,17 @@ Success looks like PHP 8.3+ and a Composer version.
 
 ## Run it
 
+Commands below are shown for both Windows PowerShell and Linux/WSL2 Bash. Generate a private API token (32 random bytes) with the platform's cryptographic generator and set it as `API_TOKEN` in `.env`; keep it private:
+
+```powershell
+$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$token
+```
+
+```bash
+openssl rand -hex 32
+```
+
 1. Install the PHP packages:
 
    ```sh
@@ -35,6 +46,14 @@ Success looks like PHP 8.3+ and a Composer version.
 
 2. Create the local MySQL database, then copy the settings and generate the app key. The examples use database `PorSca_POS` and user `root` with an empty password. Create the database as a MySQL administrator:
 
+   Connect as a MySQL administrator in either shell:
+
+   ```text
+   mysql -u root -p
+   ```
+
+   At the resulting MySQL prompt, run:
+
    ```sql
    CREATE DATABASE IF NOT EXISTS PorSca_POS CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    GRANT ALL PRIVILEGES ON PorSca_POS.* TO 'root'@'localhost';
@@ -42,7 +61,11 @@ Success looks like PHP 8.3+ and a Composer version.
 
    Copy `.env.example` and generate the app key:
 
-   ```sh
+   PowerShell: `Copy-Item .env.example .env`, then `php artisan key:generate`.
+
+   Bash:
+
+   ```bash
    cp .env.example .env
    php artisan key:generate
    ```
@@ -77,7 +100,25 @@ Success looks like PHP 8.3+ and a Composer version.
 
 Start the API first. Keep it running. Find the computer's network address, such as `192.168.1.20`, then start the Expo app from the mobile repository:
 
-```sh
+Find the LAN IPv4 address:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -ExpandProperty IPAddress
+```
+
+```bash
+hostname -I
+```
+
+PowerShell:
+
+```powershell
+$env:EXPO_PUBLIC_API_BASE_URL = 'http://192.168.1.20:8000/api/v1'; npx expo start
+```
+
+Bash:
+
+```bash
 EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:8000/api/v1 npx expo start
 ```
 
@@ -87,8 +128,8 @@ Success: the app opens and its API requests use the computer's address. A phone 
 
 Check health:
 
-```sh
-curl http://127.0.0.1:8000/api/v1/health
+```text
+curl.exe http://127.0.0.1:8000/api/v1/health
 ```
 
 Success: the response contains `"status":"ok"`.

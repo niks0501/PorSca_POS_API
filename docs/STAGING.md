@@ -48,7 +48,41 @@ PAYMONGO_SECRET_KEY=<PayMongo-test-secret>
 PAYMONGO_WEBHOOK_SECRET=<server-webhook-secret>
 ```
 
-Create the database and a dedicated user if they do not already exist. Replace the password placeholder with the same private password used in the environment file. Run these statements as a MySQL administrator:
+Generate private values on the staging machine. Use PowerShell's built-in cryptographic generator for `API_TOKEN`:
+
+```powershell
+$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$token
+```
+
+Bash:
+
+```bash
+openssl rand -hex 32
+```
+
+For `STAGING_DB_PASSWORD`, PowerShell:
+
+```powershell
+$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$password
+```
+
+Bash:
+
+```bash
+openssl rand -base64 32
+```
+
+Use the generated password in both MySQL account creation and `STAGING_DB_PASSWORD`. Obtain PayMongo test credentials from the PayMongo dashboard; do not invent or reuse credentials. `.env` and all generated secrets must remain private.
+
+Create the database and dedicated user if they do not already exist. Connect as a MySQL administrator in either PowerShell or Bash:
+
+```text
+mysql -u root -p
+```
+
+Then, at the MySQL prompt, substitute the same generated password in the SQL statement:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS porsca_staging CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -58,50 +92,64 @@ GRANT ALL PRIVILEGES ON porsca_staging.* TO 'porsca_staging'@'localhost';
 
 Success: MySQL creates the database and user and grants access without an error. If MySQL reports that either already exists, keep the existing account and make sure its password and grants match the environment values.
 
-Only after the human release owner has created a new QA cycle, reset the isolated database once at its start:
+Only after the human release owner has created a new QA cycle, reset the isolated database once at its start. Both shells:
 
-```sh
+```text
 php artisan qa:reset --force
 ```
 
 Success: the command ends with `Staging reset to qa-baseline-2026-02.` and seeds four products. It runs a fresh migration and seed on the `staging` connection. This is destructive, so run it only before a cycle starts. After the cycle starts, preserve the database. Do not reset, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
 
-After changing the environment file, clear cached configuration and restart the API so it reads the new values:
+After changing the environment file, clear cached configuration and start the API (both shells):
 
-```sh
+```text
 php artisan config:clear
 php artisan serve --host=0.0.0.0 --port=8000
 ```
 
-Success: the first command says the configuration cache was cleared; the server starts listening on port 8000. Keep the server running in this terminal. Verify the database has the expected tables:
+Success: the first command says the configuration cache was cleared; the server starts listening on port 8000. Keep the server running in this terminal. Verify the database has the expected tables (both shells):
 
-```sh
+```text
 php artisan db:show --database=staging
 ```
 
-Success: the output identifies the `porsca_staging` database and lists tables including `migrations` and the application's product and sales tables.
+Success: output identifies `porsca_staging` and lists tables including `migrations` and the application's product and sales tables.
 
-Check the API health endpoint:
+Check API health in PowerShell:
 
-```sh
+```powershell
+Invoke-RestMethod -Uri 'https://<stable-api-host>/api/v1/health'
+```
+
+In Bash:
+
+```bash
 curl https://<stable-api-host>/api/v1/health
 ```
 
-Success: the response has `environment: staging`, `database: ok`, and `status: ok` (HTTP 200).
+Success: HTTP 200 and JSON with `environment: staging`, `database: ok`, and `status: ok`.
 
 SQLite is a fallback for isolated local checks only: configure `STAGING_DB_CONNECTION=sqlite` and `STAGING_DB_DATABASE` as an absolute path to a separate SQLite file. Do not use SQLite as the staging server database.
 
 ## Local machine and Tailscale Funnel
 
-A local staging server is reachable only while the computer is on and the process is running. A home or office network can also block inbound traffic. A Tailscale Funnel URL must be enabled on the same machine that runs the API:
+A local staging server is reachable only while the computer is on and the process is running. A home or office network can also block inbound traffic. A Tailscale Funnel URL must be enabled on the same machine that runs the API. With the API listening on port 8000, run in either PowerShell or Bash:
 
-```sh
+```text
 tailscale funnel 8000
 ```
 
-Success looks like Tailscale printing an HTTPS URL. Check that URL before giving it to testers:
+Success looks like Tailscale printing an HTTPS URL. Check that URL before giving it to testers.
 
-```sh
+PowerShell:
+
+```powershell
+Invoke-RestMethod -Uri 'https://<tailscale-funnel-host>/api/v1/health'
+```
+
+Bash:
+
+```bash
 curl https://<tailscale-funnel-host>/api/v1/health
 ```
 
