@@ -2,14 +2,32 @@
 
 ## Requirements
 
-Use PHP 8.3+, Composer, and SQLite. MySQL or PostgreSQL can be used by changing Laravel's normal `DB_*` settings.
+Use PHP 8.3+, Composer, and MySQL. The local example uses database `PorSca_POS` and user `root` with an empty password. MySQL must be running.
 
 ## Install
+
+Create the local database as a MySQL administrator:
+
+```sql
+CREATE DATABASE IF NOT EXISTS PorSca_POS CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON PorSca_POS.* TO 'root'@'localhost';
+```
+
+Success: MySQL creates the database and grants access without an error. If your local root account has a password, put it in `DB_PASSWORD` in `.env`.
+
+Install the PHP packages, copy the example settings, and generate the application key:
 
 ```sh
 composer install
 cp .env.example .env
 php artisan key:generate
+```
+
+The example settings use `DB_CONNECTION=mysql`, `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_DATABASE=PorSca_POS`, `DB_USERNAME=root`, and an empty `DB_PASSWORD`. Keep `.env` private; it is ignored by git. Success: Composer completes, and Laravel says `Application key set successfully`.
+
+Prepare the local database and sample products:
+
+```sh
 php artisan migrate:fresh --seed
 ```
 
@@ -77,4 +95,4 @@ Reset local data to the synthetic baseline:
 php artisan migrate:fresh --seed
 ```
 
-Do not use `migrate:fresh` against a staging database during a QA cycle. Use the staging process in [STAGING.md](STAGING.md).
+This deletes and rebuilds the database selected by `DB_CONNECTION`. Use it only for local development. Do not use it against a staging database during a QA cycle. Follow [STAGING.md](STAGING.md) for staging.
