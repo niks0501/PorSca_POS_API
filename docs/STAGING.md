@@ -30,48 +30,66 @@ Promoting into `main` still waits for green checks or a completed human QA round
 
 ## Isolated database
 
-The staging database must not be the developer database. Use a database named `porsca_staging` in MySQL/PostgreSQL, or the separate SQLite file `database/porsca_staging.sqlite`.
-
-Set these values only on the staging machine:
+Staging uses its own MySQL database, `porsca_staging`. Do not point it at the developer database. Set these values on the staging machine and keep real secrets there:
 
 ```dotenv
 APP_ENV=staging
 APP_DEBUG=false
-DB_CONNECTION=sqlite
-STAGING_DB_CONNECTION=sqlite
-STAGING_DB_DATABASE=/absolute/path/to/porsca_staging.sqlite
+DB_CONNECTION=staging
+STAGING_DB_CONNECTION=mysql
+STAGING_DB_DATABASE=porsca_staging
+STAGING_DB_HOST=127.0.0.1
+STAGING_DB_PORT=3306
+STAGING_DB_USERNAME=porsca_staging
+STAGING_DB_PASSWORD=<strong-staging-password>
 API_TOKEN=<staging-token>
 PAYMONGO_MODE=sandbox
 PAYMONGO_SECRET_KEY=<PayMongo-test-secret>
 PAYMONGO_WEBHOOK_SECRET=<server-webhook-secret>
 ```
 
-For MySQL, set `STAGING_DB_CONNECTION=mysql`, `STAGING_DB_DATABASE=porsca_staging`, and the `STAGING_DB_HOST`, `STAGING_DB_PORT`, `STAGING_DB_USERNAME`, and `STAGING_DB_PASSWORD` values. Keep all secrets on the staging host.
+Create the database and a dedicated user if they do not already exist. Replace the password placeholder with the same private password used in the environment file. Run these statements as a MySQL administrator:
 
-After the human release owner has created a new QA cycle, create or reset the database once at its start:
+```sql
+CREATE DATABASE IF NOT EXISTS porsca_staging CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'porsca_staging'@'localhost' IDENTIFIED BY '<strong-staging-password>';
+GRANT ALL PRIVILEGES ON porsca_staging.* TO 'porsca_staging'@'localhost';
+```
+
+Success: MySQL creates the database and user and grants access without an error. If MySQL reports that either already exists, keep the existing account and make sure its password and grants match the environment values.
+
+Only after the human release owner has created a new QA cycle, reset the isolated database once at its start:
 
 ```sh
-touch database/porsca_staging.sqlite
 php artisan qa:reset --force
 ```
 
-Success looks like the command ending with `Staging reset to qa-baseline-2026-02` and four products in the new database. This runs `migrate:fresh --seed` against the `staging` connection. It is destructive, so it is allowed only before a cycle starts.
+Success: the command ends with `Staging reset to qa-baseline-2026-02.` and seeds four products. It runs a fresh migration and seed on the `staging` connection. This is destructive, so run it only before a cycle starts. After the cycle starts, preserve the database. Do not reset, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
 
-After the cycle starts, preserve the database. Do not run `migrate:fresh`, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
-
-Start the API with the staging settings:
+After changing the environment file, clear cached configuration and restart the API so it reads the new values:
 
 ```sh
+php artisan config:clear
 php artisan serve --host=0.0.0.0 --port=8000
 ```
 
-Success:
+Success: the first command says the configuration cache was cleared; the server starts listening on port 8000. Keep the server running in this terminal. Verify the database has the expected tables:
+
+```sh
+php artisan db:show --database=staging
+```
+
+Success: the output identifies the `porsca_staging` database and lists tables including `migrations` and the application's product and sales tables.
+
+Check the API health endpoint:
 
 ```sh
 curl https://<stable-api-host>/api/v1/health
 ```
 
-returns `environment: staging`, `database: ok`, and `status: ok`.
+Success: the response has `environment: staging`, `database: ok`, and `status: ok` (HTTP 200).
+
+SQLite is a fallback for isolated local checks only: configure `STAGING_DB_CONNECTION=sqlite` and `STAGING_DB_DATABASE` as an absolute path to a separate SQLite file. Do not use SQLite as the staging server database.
 
 ## Local machine and Tailscale Funnel
 

@@ -4,12 +4,13 @@
 
 This is the PorSca point-of-sale API. It is the source of truth for products, stock, sales, payments, and payment events.
 
-The API is a Laravel app. It uses PHP and SQLite on a local machine. QR Ph practice payments work without payment keys.
+The API is a Laravel app. It uses PHP and MySQL for local development. QR Ph practice payments work without payment keys.
 
 ## What you need first
 
 - PHP 8.3 or newer
 - Composer
+- MySQL
 - A terminal
 - A phone or Expo app only if you want to run the mobile app too
 
@@ -32,14 +33,21 @@ Success looks like PHP 8.3+ and a Composer version.
 
    Success: Composer ends with `Generating optimized autoload files`.
 
-2. Copy the local settings:
+2. Create the local MySQL database, then copy the settings and generate the app key. The examples use database `PorSca_POS` and user `root` with an empty password. Create the database as a MySQL administrator:
+
+   ```sql
+   CREATE DATABASE IF NOT EXISTS PorSca_POS CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   GRANT ALL PRIVILEGES ON PorSca_POS.* TO 'root'@'localhost';
+   ```
+
+   Copy `.env.example` and generate the app key:
 
    ```sh
    cp .env.example .env
    php artisan key:generate
    ```
 
-   Success: Laravel says `Application key set successfully`.
+   Success: MySQL creates the database and grants access without an error. Laravel says `Application key set successfully`. The `.env` defaults match this local setup. If the root account has a password, set `DB_PASSWORD` in `.env` before continuing.
 
 3. Prepare the local database and sample products:
 
@@ -96,7 +104,7 @@ Success: the response contains a `data.items` list with products such as `Sinand
 ## If something goes wrong
 
 - **`composer` is not found:** install Composer, open a new terminal, and run `composer --version` again.
-- **The health page says the database is unavailable:** run `php artisan migrate:fresh --seed`, then restart `php artisan serve`.
+- **The health page says the database is unavailable:** check that MySQL is running and `.env` has the right database name, user, password, host, and port; then run `php artisan migrate:fresh --seed` and restart `php artisan serve`.
 - **Products return `401`:** use `Authorization: Bearer local-api-token`, or set the same value in `API_TOKEN` in `.env`.
 - **A phone cannot connect:** use the computer's network address instead of `localhost`, and allow port 8000 through the local firewall.
 
