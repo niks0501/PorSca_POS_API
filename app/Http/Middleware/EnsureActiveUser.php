@@ -6,18 +6,20 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class EnsureApiToken
+class EnsureActiveUser
 {
+    /**
+     * Reject a token whose account has been deactivated.
+     */
     public function handle(Request $request, Closure $next): Response
     {
-        $configured = (string) config('app.api_token');
-        $provided = (string) $request->bearerToken();
+        $user = $request->user();
 
-        if ($configured === '' || $provided === '' || ! hash_equals($configured, $provided)) {
+        if ($user === null || ! $user->is_active) {
             return response()->json([
                 'error' => [
                     'code' => 'unauthorized',
-                    'message' => 'A valid Bearer token is required.',
+                    'message' => 'This account is not active.',
                 ],
             ], 401);
         }

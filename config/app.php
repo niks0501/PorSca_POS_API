@@ -99,8 +99,11 @@ return [
 
     'key' => env('APP_KEY'),
 
-    // This token is read from the server environment and is never returned by the API.
-    'api_token' => env('API_TOKEN'),
+    'admin' => [
+        'name' => env('ADMIN_NAME', 'Store Admin'),
+        'email' => env('ADMIN_EMAIL'),
+        'password' => env('ADMIN_PASSWORD'),
+    ],
 
     'previous_keys' => [
         ...array_filter(

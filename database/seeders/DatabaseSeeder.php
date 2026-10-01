@@ -13,9 +13,12 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        $this->call(AdminUserSeeder::class);
+
         User::factory()->create([
             'name' => 'QA User',
             'email' => 'qa@example.test',
+            'role' => User::ROLE_ADMIN,
         ]);
 
         $products = [

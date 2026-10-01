@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Product;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -10,11 +11,13 @@ class CatalogInventoryTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $token;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        config(['app.api_token' => 'test-token']);
+        $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
     }
 
     public function test_name_search_returns_catalog_details_and_low_stock_state(): void
@@ -119,7 +122,7 @@ class CatalogInventoryTest extends TestCase
     private function headers(): array
     {
         return [
-            'Authorization' => 'Bearer test-token',
+            'Authorization' => 'Bearer '.$this->token,
             'Accept' => 'application/json',
         ];
     }

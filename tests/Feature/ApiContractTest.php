@@ -6,6 +6,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Services\CheckoutService;
 use App\Services\PaymentSettlementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -17,12 +18,14 @@ class ApiContractTest extends TestCase
 
     private string $webhookSecret;
 
+    private string $token;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->webhookSecret = bin2hex(random_bytes(16));
+        $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
         config([
-            'app.api_token' => 'test-token',
             'services.paymongo.mode' => 'sandbox',
             'services.paymongo.secret_key' => null,
             'services.paymongo.webhook_secret' => $this->webhookSecret,
@@ -41,7 +44,7 @@ class ApiContractTest extends TestCase
     public function test_protected_resources_require_a_bearer_token(): void
     {
         $this->getJson('/api/v1/products')->assertUnauthorized();
-        $this->getJson('/api/v1/products', ['Authorization' => 'Bearer test-token'])->assertOk();
+        $this->getJson('/api/v1/products', ['Authorization' => 'Bearer '.$this->token])->assertOk();
     }
 
     public function test_checkout_is_idempotent_and_paid_settlement_is_atomic(): void
@@ -49,7 +52,7 @@ class ApiContractTest extends TestCase
         $product = Product::factory()->create(['price' => 1250]);
         $product->inventory()->create(['quantity' => 5, 'reorder_level' => 1]);
         $payload = ['items' => [['product_id' => $product->id, 'quantity' => 2]]];
-        $headers = ['Authorization' => 'Bearer test-token', 'Idempotency-Key' => 'checkout-001'];
+        $headers = ['Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => 'checkout-001'];
 
         $first = $this->postJson('/api/v1/sales/checkout', $payload, $headers);
         $first->assertCreated()
@@ -128,7 +131,7 @@ class ApiContractTest extends TestCase
         $this->postJson('/api/v1/webhooks/paymongo', [], ['X-PayMongo-Signature' => 'wrong'])
             ->assertUnauthorized();
         $this->postJson('/api/v1/sales/checkout', ['items' => []], [
-            'Authorization' => 'Bearer test-token',
+            'Authorization' => 'Bearer '.$this->token,
             'Idempotency-Key' => 'invalid-001',
         ])->assertStatus(422)->assertJsonPath('error.code', 'validation_error');
     }
