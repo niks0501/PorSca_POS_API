@@ -83,7 +83,7 @@ openssl rand -hex 32
 4. Start the API:
 
    ```sh
-   php artisan serve
+   php artisan serve --host=0.0.0.0 --port=8000
    ```
 
    Success: Laravel prints a local URL, usually `http://127.0.0.1:8000`.
@@ -113,13 +113,13 @@ hostname -I
 PowerShell:
 
 ```powershell
-$env:EXPO_PUBLIC_API_BASE_URL = 'http://192.168.1.20:8000/api/v1'; npx expo start
+$env:EXPO_PUBLIC_API_URL = 'http://192.168.1.20:8000/api/v1'; npx expo start
 ```
 
 Bash:
 
 ```bash
-EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:8000/api/v1 npx expo start
+EXPO_PUBLIC_API_URL=http://192.168.1.20:8000/api/v1 npx expo start
 ```
 
 Success: the app opens and its API requests use the computer's address. A phone and the computer must be on the same network. A phone cannot use `localhost` to reach the computer.
@@ -145,7 +145,7 @@ Success: the response contains a `data.items` list with products such as `Sinand
 ## If something goes wrong
 
 - **`composer` is not found:** install Composer, open a new terminal, and run `composer --version` again.
-- **The health page says the database is unavailable:** check that MySQL is running and `.env` has the right database name, user, password, host, and port; then run `php artisan migrate:fresh --seed` and restart `php artisan serve`.
+- **The health page says the database is unavailable:** check that MySQL is running and `.env` has the right database name, user, password, host, and port; then run `php artisan migrate:fresh --seed` and restart `php artisan serve --host=0.0.0.0 --port=8000`.
 - **Products return `401`:** use `Authorization: Bearer local-api-token`, or set the same value in `API_TOKEN` in `.env`.
 - **A phone cannot connect:** use the computer's network address instead of `localhost`, and allow port 8000 through the local firewall.
 
