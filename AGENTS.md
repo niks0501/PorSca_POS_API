@@ -44,7 +44,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Freshness
 
-A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`.
+A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`. Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
 
 ## Maintaining this file
 
