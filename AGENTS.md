@@ -21,6 +21,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 ## Documentation map
 
 - Setup — [docs/SETUP.md](docs/SETUP.md)
+- Windows 11 native Wi-Fi LAN development — [README.md](README.md#windows-11-native-wi-fi-lan-development)
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Staging and promotion — [docs/STAGING.md](docs/STAGING.md)
 - Testing — [docs/TESTING.md](docs/TESTING.md)
