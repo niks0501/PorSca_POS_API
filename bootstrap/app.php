@@ -1,7 +1,9 @@
 <?php
 
 use App\Exceptions\ApiException;
-use App\Http\Middleware\EnsureApiToken;
+use App\Http\Middleware\EnsureActiveUser;
+use App\Http\Middleware\EnsureRole;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -19,14 +21,33 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // This is an API-only application with no `login` web route. Guest
+        // requests must never be redirected to one, whatever Accept header
+        // they send, so they fall through to the JSON 401 the exception
+        // handler already renders for api/*.
+        $middleware->redirectGuestsTo(fn () => null);
+
         $middleware->alias([
-            'api.token' => EnsureApiToken::class,
+            'active' => EnsureActiveUser::class,
+            'role' => EnsureRole::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+        $exceptions->render(function (AuthenticationException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'unauthorized',
+                    'message' => 'A valid Bearer token is required.',
+                ],
+            ], 401);
+        });
         $exceptions->render(function (ApiException $exception, Request $request) {
             if (! $request->is('api/*')) {
                 return null;

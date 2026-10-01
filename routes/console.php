@@ -3,6 +3,7 @@
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -32,3 +33,5 @@ Artisan::command('qa:reset {--force}', function () {
 
     return 0;
 })->purpose('Reset, migrate, and seed the isolated staging database for a QA cycle');
+
+Schedule::command('sanctum:prune-expired --hours=24')->daily();

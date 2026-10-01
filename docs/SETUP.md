@@ -4,22 +4,17 @@
 
 Use PHP 8.3+, Composer, and MySQL. The local example uses database `PorSca_POS` and user `root` with an empty password. MySQL must be running. Commands are provided for Windows PowerShell and Linux/WSL2 Bash.
 
-## Private API token
+## Admin account
 
-Generate 32 random bytes (64 hexadecimal characters) and set the result as `API_TOKEN` in `.env`. Do not commit or share the generated value.
+The API has no public registration. The first admin comes from `.env`. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (and optionally `ADMIN_NAME`), then seed:
 
-PowerShell (built-in .NET cryptographic generator):
-
-```powershell
-$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$token
+```text
+php artisan migrate:fresh --seed
 ```
 
-Bash (OpenSSL):
+`ADMIN_PASSWORD` is only used when that email does not exist yet, so re-seeding never resets a password you changed later. The seeder skips itself and warns when the values are missing outside production, and refuses to seed production without them.
 
-```bash
-openssl rand -hex 32
-```
+Tokens are Sanctum personal access tokens that expire after `SANCTUM_EXPIRATION` minutes (default `43200`, 30 days). Keep `ADMIN_PASSWORD` and `SANCTUM_EXPIRATION` out of source and commits.
 
 ## Install
 
@@ -56,7 +51,7 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-The example settings use `DB_CONNECTION=mysql`, `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_DATABASE=PorSca_POS`, `DB_USERNAME=root`, and an empty `DB_PASSWORD`. Put your private token into `API_TOKEN`. Keep `.env` private; it is ignored by git. Success: Composer completes, and Laravel says `Application key set successfully`.
+The example settings use `DB_CONNECTION=mysql`, `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_DATABASE=PorSca_POS`, `DB_USERNAME=root`, and an empty `DB_PASSWORD`. Put your admin email and password into `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Keep `.env` private; it is ignored by git. Success: Composer completes, and Laravel says `Application key set successfully`.
 
 Prepare the local database and sample products (both shells):
 
@@ -86,11 +81,11 @@ Copy `.env.example` before local work. `.env` is ignored by git. Never put these
 
 - `PAYMONGO_SECRET_KEY`
 - `PAYMONGO_WEBHOOK_SECRET`
-- `API_TOKEN`
+- `ADMIN_PASSWORD`
 
 The default `PAYMONGO_MODE=sandbox` is required. The API refuses to use a production mode. With no PayMongo secret, checkout returns a clearly labeled local sandbox QR practice payload. Product, stock, checkout, and all non-QR flows still run.
 
-For a local request, send `Authorization: Bearer <your-API_TOKEN>`. The seeded rice product can be looked up with `GET /api/v1/products/barcode/4800000000010`; coffee is low stock and soap is out of stock for catalog and inventory checks.
+For a local request, first sign in at `POST /api/v1/auth/login` with the seeded admin email and password, then send `Authorization: Bearer <token>` with the returned token. The seeded rice product can be looked up with `GET /api/v1/products/barcode/4800000000010`; coffee is low stock and soap is out of stock for catalog and inventory checks.
 
 ## Canonical verification
 

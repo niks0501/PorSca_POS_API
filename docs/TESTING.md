@@ -12,7 +12,9 @@ Success means all Laravel feature and unit tests pass, followed by a clean Pint 
 
 The Laravel tests cover:
 
-- public health and bearer-token protection
+- public health and per-user token protection
+- login, login rate limiting, token expiry, and logout revocation
+- admin and cashier role enforcement, including deactivated accounts
 - product and stock validation
 - checkout amount and payment persistence
 - repeated idempotency keys
@@ -24,7 +26,7 @@ The Laravel tests cover:
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, signed practice webhook rejection of unsupported settlement, payment read again, sales, and transactions.
+The collection runs the HTTP contract in order: admin login, health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, signed practice webhook rejection of unsupported settlement, payment read again, sales, and transactions.
 
 Required tools:
 
@@ -54,16 +56,17 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: Newman reports 24 requests and all assertions passing. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
+Success: Newman reports 25 requests and all assertions passing. The first request signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`, which the later requests use. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
 
-For staging, copy the environment file to a file outside git and override `base_url`, `api_token`, and `webhook_secret` from the staging machine's environment. Never commit the copy:
+For staging, copy the environment file to a file outside git and override `base_url`, `admin_email`, `admin_password`, and `webhook_secret` from the staging machine's environment. Never commit the copy:
 
 ```sh
 cp postman/PorSca-API.postman_environment.json /tmp/porsca-staging.postman_environment.json
 npx newman run postman/PorSca-API.postman_collection.json \
   -e /tmp/porsca-staging.postman_environment.json \
   --env-var base_url=https://<stable-api-host>/api/v1 \
-  --env-var api_token="$API_TOKEN" \
+  --env-var admin_email="$ADMIN_EMAIL" \
+  --env-var admin_password="$ADMIN_PASSWORD" \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 

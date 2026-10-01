@@ -42,17 +42,21 @@ STAGING_DB_HOST=127.0.0.1
 STAGING_DB_PORT=3306
 STAGING_DB_USERNAME=porsca_staging
 STAGING_DB_PASSWORD=<strong-staging-password>
-API_TOKEN=<staging-token>
+ADMIN_NAME=<store-admin-name>
+ADMIN_EMAIL=<store-admin-email>
+ADMIN_PASSWORD=<strong-admin-password>
+# Sanctum token lifetime in minutes; 43200 is 30 days.
+SANCTUM_EXPIRATION=43200
 PAYMONGO_MODE=sandbox
 PAYMONGO_SECRET_KEY=<PayMongo-test-secret>
 PAYMONGO_WEBHOOK_SECRET=<server-webhook-secret>
 ```
 
-Generate private values on the staging machine. Use PowerShell's built-in cryptographic generator for `API_TOKEN`:
+Generate private values on the staging machine. Generate a strong `ADMIN_PASSWORD` with PowerShell's built-in cryptographic generator:
 
 ```powershell
-$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$token
+$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+$password
 ```
 
 Bash:

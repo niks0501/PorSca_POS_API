@@ -31,7 +31,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Cross-repo handshake
 
-- Contract: use `porsca-mobile-api-v1` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
+- Contract: use `porsca-mobile-api-v2` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
 - Pair check: compare the exact full API and mobile commit SHAs in the current QA record with both repositories' `staging` tips, and confirm both contract documents name the same version.
 - Promotion: promote the exact paired revisions from `staging` to `main` together, and only after a human approves the formal QA cycle.
 

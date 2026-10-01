@@ -25,15 +25,12 @@ Success looks like PHP 8.3+ and a Composer version.
 
 ## Run it
 
-Commands below are shown for both Windows PowerShell and Linux/WSL2 Bash. Generate a private API token (32 random bytes) with the platform's cryptographic generator and set it as `API_TOKEN` in `.env`; keep it private:
+Commands below are shown for both Windows PowerShell and Linux/WSL2 Bash. The API has no public registration, so set the first admin in `.env` before seeding:
 
-```powershell
-$token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$token
-```
-
-```bash
-openssl rand -hex 32
+```dotenv
+ADMIN_NAME="Store Admin"
+ADMIN_EMAIL=admin@example.test
+ADMIN_PASSWORD=<choose-a-strong-password>
 ```
 
 1. Install the PHP packages:
@@ -186,10 +183,14 @@ curl.exe http://127.0.0.1:8000/api/v1/health
 
 Success: the response contains `"status":"ok"`.
 
-List the seeded products:
+Sign in first, then list the seeded products with the returned token:
 
 ```sh
-curl -H 'Authorization: Bearer local-api-token' http://127.0.0.1:8000/api/v1/products
+curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.test","password":"<your-ADMIN_PASSWORD>"}'
+
+curl -H 'Authorization: Bearer <returned-token>' http://127.0.0.1:8000/api/v1/products
 ```
 
 Success: the response contains a `data.items` list with products such as `Sinandomeng Rice 5kg`. Add `?search=coffee` for name search or call `/api/v1/products/barcode/4800000000010` for the seeded rice barcode lookup. Product responses include a consistent stock status (`in_stock`, `low_stock`, or `out_of_stock`).
@@ -198,7 +199,7 @@ Success: the response contains a `data.items` list with products such as `Sinand
 
 - **`composer` is not found:** install Composer, open a new terminal, and run `composer --version` again.
 - **The health page says the database is unavailable:** check that MySQL is running and `.env` has the right database name, user, password, host, and port; then run `php artisan migrate:fresh --seed` and restart `php artisan serve --host=0.0.0.0 --port=8000`.
-- **Products return `401`:** use `Authorization: Bearer local-api-token`, or set the same value in `API_TOKEN` in `.env`.
+- **Products return `401`:** sign in at `POST /api/v1/auth/login` and send the returned token as `Authorization: Bearer <token>`. Tokens expire after `SANCTUM_EXPIRATION` minutes (default 30 days).
 - **A phone cannot connect:** use the computer's network address instead of `localhost`, and allow port 8000 through the local firewall.
 
 ## Learn more
