@@ -1,0 +1,25 @@
+// Managed by AkiDev project MCP configuration.
+// AkiDev updates only its known MCP entries and preserves other project config.
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@upstash/context7-mcp@4.1.1"
+      ],
+      "enabled": true
+    },
+    "laravel-boost": {
+      "type": "local",
+      "command": [
+        "php",
+        "artisan",
+        "boost:mcp"
+      ],
+      "enabled": true
+    }
+  }
+}

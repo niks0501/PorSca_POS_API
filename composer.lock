@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e797f945fd000ed5a571c7f9ba846bfb",
+    "content-hash": "794b1f0fed17dfee95011b4b5952fbba",
     "packages": [
         {
             "name": "brick/math",
@@ -6541,16 +6541,16 @@
         },
         {
             "name": "laravel/boost",
-            "version": "v2.7.1",
+            "version": "v2.10.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laravel/boost.git",
-                "reference": "1ffcccb0f5f041c68bebea4d907cc15533d0838f"
+                "reference": "3e7bab5c7c80b6d2764ef3db1e3eb801204da84e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laravel/boost/zipball/1ffcccb0f5f041c68bebea4d907cc15533d0838f",
-                "reference": "1ffcccb0f5f041c68bebea4d907cc15533d0838f",
+                "url": "https://api.github.com/repos/laravel/boost/zipball/3e7bab5c7c80b6d2764ef3db1e3eb801204da84e",
+                "reference": "3e7bab5c7c80b6d2764ef3db1e3eb801204da84e",
                 "shasum": ""
             },
             "require": {
@@ -6559,7 +6559,7 @@
                 "illuminate/contracts": "^11.45.3|^12.41.1|^13.0",
                 "illuminate/routing": "^11.45.3|^12.41.1|^13.0",
                 "illuminate/support": "^11.45.3|^12.41.1|^13.0",
-                "laravel/mcp": "^0.7.1|^0.8.0|^0.9.0",
+                "laravel/mcp": "^0.7.1|^0.8.0|^0.9.0|^1.0",
                 "laravel/prompts": "^0.3.10",
                 "laravel/roster": "^1.0.0",
                 "php": "^8.2"
@@ -6603,7 +6603,7 @@
                 "issues": "https://github.com/laravel/boost/issues",
                 "source": "https://github.com/laravel/boost"
             },
-            "time": "2026-09-07T04:38:53+00:00"
+            "time": "2026-10-01T02:02:28+00:00"
         },
         {
             "name": "laravel/mcp",
