@@ -1,0 +1,6 @@
+# Runtime downloads/caches are project-local but should not be committed.
+cache/
+tools/
+tmp/
+home/
+conflicts/

@@ -9,3 +9,14 @@
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore
+
+# >>> AkiDev line endings >>>
+/AGENTS.md text eol=lf
+/.agents/** text eol=lf
+/.pi/** text eol=lf
+/.codex/** text eol=lf
+/.opencode/** text eol=lf
+/.akidev/config text eol=lf
+/.akidev/managed.tsv text eol=lf
+/opencode.jsonc text eol=lf
+# <<< AkiDev line endings <<<

@@ -1,0 +1,4 @@
+# Managed by AkiDev. Values are intentionally plain text; no shell evaluation is required.
+profile=laravel-react
+overlays=mysql
+tools=laravel-boost,context7
