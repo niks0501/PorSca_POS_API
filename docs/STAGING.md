@@ -102,7 +102,7 @@ Only after the human release owner has created a new QA cycle, reset the isolate
 php artisan qa:reset --force
 ```
 
-Success: the command ends with `Staging reset to qa-baseline-2026-02.` and seeds four products. It runs a fresh migration and seed on the `staging` connection. This is destructive, so run it only before a cycle starts. After the cycle starts, preserve the database. Do not reset, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
+Success: the command ends with `Staging reset to qa-baseline-2026-10.` and seeds four products. It runs a fresh migration and seed on the `staging` connection. This is destructive, so run it only before a cycle starts. After the cycle starts, preserve the database. Do not reset, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
 
 After changing the environment file, clear cached configuration and start the API (both shells):
 

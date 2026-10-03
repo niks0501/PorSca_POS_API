@@ -85,7 +85,7 @@ Copy `.env.example` before local work. `.env` is ignored by git. Never put these
 
 The default `PAYMONGO_MODE=sandbox` is required. The API refuses to use a production mode. With no PayMongo secret, checkout returns a clearly labeled local sandbox QR practice payload. Product, stock, checkout, and all non-QR flows still run.
 
-For a local request, first sign in at `POST /api/v1/auth/login` with the seeded admin email and password, then send `Authorization: Bearer <token>` with the returned token. The seeded rice product can be looked up with `GET /api/v1/products/barcode/4800000000010`; coffee is low stock and soap is out of stock for catalog and inventory checks.
+For a local request, first sign in at `POST /api/v1/auth/login` with the seeded admin email and password, then send `Authorization: Bearer <token>` with the returned token. The seeded rice product can be looked up with `GET /api/v1/products/barcode/4800000000019`; coffee is low stock and soap is out of stock for catalog and inventory checks.
 
 ## Canonical verification
 

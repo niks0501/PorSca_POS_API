@@ -139,7 +139,9 @@
         "const rice = items.find(function (item) { return item.sku === 'RICE-001'; });",
         "const coffee = items.find(function (item) { return item.sku === 'COFFEE-001'; });",
         "const soap = items.find(function (item) { return item.sku === 'SOAP-001'; });",
-        "pm.expect(rice, 'seeded rice product').to.not.be.undefined; pm.expect(coffee, 'seeded coffee product').to.not.be.undefined; pm.expect(soap, 'seeded soap product').to.not.be.undefined;",
+        "const water = items.find(function (item) { return item.sku === 'WATER-001'; });",
+        "pm.expect(rice, 'seeded rice product').to.not.be.undefined; pm.expect(coffee, 'seeded coffee product').to.not.be.undefined; pm.expect(soap, 'seeded soap product').to.not.be.undefined; pm.expect(water, 'seeded water product').to.not.be.undefined;",
+        "pm.expect(rice.barcode).to.eql(pm.environment.get('product_barcode')); pm.expect(coffee.barcode).to.eql(pm.environment.get('coffee_barcode')); pm.expect(soap.barcode).to.eql(pm.environment.get('soap_barcode')); pm.expect(water.barcode).to.eql(pm.environment.get('water_barcode'));",
         "pm.environment.set('product_id', rice.id); pm.environment.set('product_barcode', rice.barcode); pm.environment.set('out_of_stock_product_id', soap.id);"
       ]}}]
     },
