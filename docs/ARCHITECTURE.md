@@ -103,7 +103,7 @@ Example item:
 {
   "id": 1,
   "sku": "RICE-001",
-  "barcode": "4800000000010",
+  "barcode": "4800000000019",
   "name": "Sinandomeng Rice 5kg",
   "category": "Grocery",
   "description": null,

@@ -9,7 +9,7 @@ use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    public const BASELINE_VERSION = 'qa-baseline-2026-02';
+    public const BASELINE_VERSION = 'qa-baseline-2026-10';
 
     public function run(): void
     {
@@ -24,7 +24,7 @@ class DatabaseSeeder extends Seeder
         $products = [
             [
                 'sku' => 'RICE-001',
-                'barcode' => '4800000000010',
+                'barcode' => '4800000000019',
                 'name' => 'Sinandomeng Rice 5kg',
                 'category' => 'Grocery',
                 'price' => 32000,
@@ -32,7 +32,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'sku' => 'COFFEE-001',
-                'barcode' => '4800000000027',
+                'barcode' => '4800000000026',
                 'name' => 'Barako Coffee 250g',
                 'category' => 'Beverage',
                 'price' => 18500,
@@ -40,7 +40,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'sku' => 'SOAP-001',
-                'barcode' => '4800000000034',
+                'barcode' => '4800000000033',
                 'name' => 'Laundry Soap 500g',
                 'category' => 'Household',
                 'price' => 7500,
@@ -48,7 +48,7 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'sku' => 'WATER-001',
-                'barcode' => '4800000000041',
+                'barcode' => '4800000000040',
                 'name' => 'Mineral Water 1L',
                 'category' => 'Beverage',
                 'price' => 3500,
