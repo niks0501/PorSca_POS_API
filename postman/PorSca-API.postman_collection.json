@@ -9,11 +9,25 @@
   ],
   "item": [
     {
+      "name": "Auth - Login as admin",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\",\n  \"device_name\": \"Postman\"\n}"},
+        "url": "{{base_url}}/auth/login"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+        "pm.test('login returns an admin bearer token', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.token).to.be.a('string').and.not.empty; pm.expect(data.token_type).to.eql('Bearer'); pm.expect(data.user.role).to.eql('admin'); pm.environment.set('token', data.token); });"
+      ]}}]
+    },
+    {
       "name": "Products - create managed product",
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
         "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product\",\n  \"barcode\": \"4800000000999\",\n  \"category\": \"Beverage\",\n  \"price\": 17500,\n  \"stock\": 8,\n  \"reorder_level\": 2\n}"},
@@ -28,7 +42,7 @@
       "request": {
         "method": "PATCH",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
         "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product XL\",\n  \"barcode\": \"4800000000998\",\n  \"category\": \"Beverage\",\n  \"price\": 19900,\n  \"stock\": 11\n}"},
@@ -43,7 +57,7 @@
       "request": {
         "method": "PATCH",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
         "body": {"mode": "raw", "raw": "{\n  \"stock\": 9\n}"},
@@ -66,7 +80,7 @@
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Idempotency-Key", "value": "{{cash_idempotency_key}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
@@ -82,7 +96,7 @@
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Idempotency-Key", "value": "{{cash_idempotency_key}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
@@ -94,7 +108,7 @@
       "name": "Sales - Cash sale history",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/sales/{{cash_sale_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -116,7 +130,7 @@
       "name": "Products - catalog",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/products"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -125,7 +139,9 @@
         "const rice = items.find(function (item) { return item.sku === 'RICE-001'; });",
         "const coffee = items.find(function (item) { return item.sku === 'COFFEE-001'; });",
         "const soap = items.find(function (item) { return item.sku === 'SOAP-001'; });",
-        "pm.expect(rice, 'seeded rice product').to.not.be.undefined; pm.expect(coffee, 'seeded coffee product').to.not.be.undefined; pm.expect(soap, 'seeded soap product').to.not.be.undefined;",
+        "const water = items.find(function (item) { return item.sku === 'WATER-001'; });",
+        "pm.expect(rice, 'seeded rice product').to.not.be.undefined; pm.expect(coffee, 'seeded coffee product').to.not.be.undefined; pm.expect(soap, 'seeded soap product').to.not.be.undefined; pm.expect(water, 'seeded water product').to.not.be.undefined;",
+        "pm.expect(rice.barcode).to.eql(pm.environment.get('product_barcode')); pm.expect(coffee.barcode).to.eql(pm.environment.get('coffee_barcode')); pm.expect(soap.barcode).to.eql(pm.environment.get('soap_barcode')); pm.expect(water.barcode).to.eql(pm.environment.get('water_barcode'));",
         "pm.environment.set('product_id', rice.id); pm.environment.set('product_barcode', rice.barcode); pm.environment.set('out_of_stock_product_id', soap.id);"
       ]}}]
     },
@@ -133,7 +149,7 @@
       "name": "Products - name search",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/products?search=coffee"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -144,7 +160,7 @@
       "name": "Products - barcode lookup",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/products/barcode/{{product_barcode}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -155,7 +171,7 @@
       "name": "Products - unknown barcode",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/products/barcode/0000000000000"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -166,7 +182,7 @@
       "name": "Inventory - low and out-of-stock states",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/inventory?low_stock=true"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -177,7 +193,7 @@
       "name": "Inventory - out-of-stock product",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/inventory/{{out_of_stock_product_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -199,7 +215,7 @@
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Idempotency-Key", "value": "{{idempotency_key}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
@@ -211,7 +227,7 @@
       "name": "Payments - Get pending payment",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/payments/{{payment_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -285,7 +301,7 @@
       "request": {
         "method": "POST",
         "header": [
-          {"key": "Authorization", "value": "Bearer {{api_token}}"},
+          {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Idempotency-Key", "value": "{{failed_idempotency_key}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
@@ -321,7 +337,7 @@
       "name": "Payments - Get paid payment",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/payments/{{payment_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -332,7 +348,7 @@
       "name": "Sales",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/sales"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -343,7 +359,7 @@
       "name": "Transactions",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/transactions?payment_id={{payment_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
@@ -354,7 +370,7 @@
       "name": "Transactions - Cash sale history",
       "request": {
         "method": "GET",
-        "header": [{"key": "Authorization", "value": "Bearer {{api_token}}"}],
+        "header": [{"key": "Authorization", "value": "Bearer {{token}}"}],
         "url": "{{base_url}}/transactions?sale_id={{cash_sale_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [

@@ -6,6 +6,7 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Models\WebhookEvent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory;
@@ -18,11 +19,13 @@ class PaymentLifecycleTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $token;
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
         config([
-            'app.api_token' => 'test-token',
             'services.paymongo.mode' => 'sandbox',
             'services.paymongo.secret_key' => 'sk_test_fixture_only',
             'services.paymongo.webhook_secret' => 'fixture-webhook-secret',
@@ -73,7 +76,7 @@ class PaymentLifecycleTest extends TestCase
     {
         $this->postJson('/api/v1/payments', ['items' => [
             ['product_id' => $product->id, 'quantity' => 1, 'unit_price' => 1],
-        ], 'total' => 1], ['Authorization' => 'Bearer test-token', 'Idempotency-Key' => $key])
+        ], 'total' => 1], ['Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => $key])
             ->assertCreated()->assertJsonPath('data.amount', 500)
             ->assertJsonPath('data.qr_payload', 'data:image/png;base64,fixture')
             ->assertJsonPath('data.checkout_url', null);
@@ -117,7 +120,7 @@ class PaymentLifecycleTest extends TestCase
             'https://api.paymongo.test/v1/payment_methods' => Http::response([], 503),
         ]);
         $body = ['items' => [['product_id' => $product->id, 'quantity' => 1]]];
-        $headers = ['Authorization' => 'Bearer test-token', 'Idempotency-Key' => 'retry-key'];
+        $headers = ['Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => 'retry-key'];
         $this->postJson('/api/v1/payments', $body, $headers)->assertStatus(503);
         $payment = Payment::firstOrFail();
         $this->assertNotNull($payment->provider_operation_key);
@@ -205,7 +208,7 @@ class PaymentLifecycleTest extends TestCase
     public function test_invalid_amount_currency_and_aggregate_quantity_fail_before_http(): void
     {
         $product = $this->product();
-        $headers = ['Authorization' => 'Bearer test-token', 'Idempotency-Key' => 'invalid-cart'];
+        $headers = ['Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => 'invalid-cart'];
         $product->update(['price' => 0]);
         $this->postJson('/api/v1/payments', ['items' => [['product_id' => $product->id, 'quantity' => 1]]], $headers)->assertStatus(422);
         $product->update(['price' => 500, 'currency' => 'USD']);
@@ -277,16 +280,16 @@ class PaymentLifecycleTest extends TestCase
         $product = $this->product(1);
         $payment = $this->start($product);
         $this->postJson('/api/v1/payments', ['items' => [['product_id' => $product->id, 'quantity' => 1]]], [
-            'Authorization' => 'Bearer test-token', 'Idempotency-Key' => 'second-qr',
+            'Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => 'second-qr',
         ])->assertStatus(409);
         $this->postJson('/api/v1/sales/cash', ['items' => [['product_id' => $product->id, 'quantity' => 1]], 'cash_received' => 500], [
-            'Authorization' => 'Bearer test-token', 'Idempotency-Key' => 'cash-race',
+            'Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => 'cash-race',
         ])->assertStatus(409);
-        $this->patchJson('/api/v1/products/'.$product->id.'/stock', ['stock' => 0], ['Authorization' => 'Bearer test-token'])->assertStatus(409);
-        $this->patchJson('/api/v1/products/'.$product->id, ['stock' => 0], ['Authorization' => 'Bearer test-token'])->assertStatus(409);
+        $this->patchJson('/api/v1/products/'.$product->id.'/stock', ['stock' => 0], ['Authorization' => 'Bearer '.$this->token])->assertStatus(409);
+        $this->patchJson('/api/v1/products/'.$product->id, ['stock' => 0], ['Authorization' => 'Bearer '.$this->token])->assertStatus(409);
         $this->assertSame(1, $product->fresh()->inventory->quantity);
         $payment->update(['reservation_expires_at' => now()->subMinute()]);
-        $this->patchJson('/api/v1/products/'.$product->id.'/stock', ['stock' => 0], ['Authorization' => 'Bearer test-token'])->assertOk();
+        $this->patchJson('/api/v1/products/'.$product->id.'/stock', ['stock' => 0], ['Authorization' => 'Bearer '.$this->token])->assertOk();
         $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
         $this->signed($this->event('evt-late-paid'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID_UNFULFILLED);
         $this->assertSame(0, Sale::count());

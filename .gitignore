@@ -25,3 +25,19 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+.backpassrc.json
+
+# >>> AkiDev project-local runtime >>>
+.akidev/cache/
+.akidev/home/
+.akidev/tools/
+.akidev/tmp/
+.akidev/conflicts/
+# <<< AkiDev project-local runtime <<<
+
+# >>> AkiDev project-local Codex configuration >>>
+!/.codex/
+!/.codex/config.toml
+!/.codex/rules/
+!/.codex/rules/akidev.rules
+# <<< AkiDev project-local Codex configuration <<<

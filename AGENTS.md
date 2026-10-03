@@ -21,6 +21,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 ## Documentation map
 
 - Setup — [docs/SETUP.md](docs/SETUP.md)
+- Windows 11 native Wi-Fi LAN development — [README.md](README.md#windows-11-native-wi-fi-lan-development)
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Staging and promotion — [docs/STAGING.md](docs/STAGING.md)
 - Testing — [docs/TESTING.md](docs/TESTING.md)
@@ -30,7 +31,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Cross-repo handshake
 
-- Contract: use `porsca-mobile-api-v1` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
+- Contract: use `porsca-mobile-api-v2` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
 - Pair check: compare the exact full API and mobile commit SHAs in the current QA record with both repositories' `staging` tips, and confirm both contract documents name the same version.
 - Promotion: promote the exact paired revisions from `staging` to `main` together, and only after a human approves the formal QA cycle.
 
@@ -43,7 +44,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Freshness
 
-A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`.
+A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`. Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
 
 ## Maintaining this file
 

@@ -1,0 +1,67 @@
+# AkiDev slim project safety rules.
+# Keep this list small: block catastrophic commands and prompt for operations
+# that mutate dependencies, Git history, databases, or deployment state.
+
+prefix_rule(
+    pattern = ["mkfs"],
+    decision = "forbidden",
+    justification = "Formatting filesystems is never a project-development operation.",
+)
+
+prefix_rule(
+    pattern = ["sudo", "mkfs"],
+    decision = "forbidden",
+    justification = "Formatting filesystems is never a project-development operation.",
+)
+
+prefix_rule(
+    pattern = ["dd"],
+    decision = "forbidden",
+    justification = "Raw block-device copying is too destructive for normal project work.",
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf", "/"],
+    decision = "forbidden",
+    justification = "Recursive deletion of filesystem root is forbidden.",
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf", "~"],
+    decision = "forbidden",
+    justification = "Recursive deletion of the home directory is forbidden.",
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf", "$HOME"],
+    decision = "forbidden",
+    justification = "Recursive deletion of the home directory is forbidden.",
+)
+
+prefix_rule(pattern = ["git", "commit"], decision = "prompt", justification = "Commits should happen only when explicitly intended.")
+prefix_rule(pattern = ["git", "push"], decision = "prompt", justification = "Pushing changes affects the remote repository.")
+prefix_rule(pattern = ["git", "rebase"], decision = "prompt", justification = "Rebase rewrites Git history.")
+prefix_rule(pattern = ["git", "reset", "--hard"], decision = "prompt", justification = "Hard reset can discard local work.")
+prefix_rule(pattern = ["git", "clean", "-fd"], decision = "prompt", justification = "Git clean can irreversibly remove untracked files.")
+prefix_rule(pattern = ["git", "stash"], decision = "prompt", justification = "Stashing changes alters the user's current working state.")
+
+prefix_rule(pattern = ["npm", "install"], decision = "prompt", justification = "Dependency installation can change package and lock files and execute lifecycle scripts.")
+prefix_rule(pattern = ["npm", "update"], decision = "prompt", justification = "Dependency updates can change application behavior and lock files.")
+prefix_rule(pattern = ["npm", "uninstall"], decision = "prompt", justification = "Removing dependencies changes the project dependency graph.")
+prefix_rule(pattern = ["pnpm", "add"], decision = "prompt", justification = "Adding dependencies changes package and lock files.")
+prefix_rule(pattern = ["pnpm", "install"], decision = "prompt", justification = "Dependency installation can execute lifecycle scripts.")
+prefix_rule(pattern = ["pnpm", "update"], decision = "prompt", justification = "Dependency updates can change application behavior and lock files.")
+prefix_rule(pattern = ["pnpm", "remove"], decision = "prompt", justification = "Removing dependencies changes the project dependency graph.")
+prefix_rule(pattern = ["composer", "require"], decision = "prompt", justification = "Composer dependency changes can modify code and execute scripts.")
+prefix_rule(pattern = ["composer", "update"], decision = "prompt", justification = "Composer updates can change dependency versions and execute scripts.")
+prefix_rule(pattern = ["composer", "install"], decision = "prompt", justification = "Composer install can execute project scripts.")
+
+prefix_rule(pattern = ["php", "artisan", "migrate"], decision = "prompt", justification = "Database migrations mutate persistent schema/data.")
+prefix_rule(pattern = ["npx", "prisma", "migrate"], decision = "prompt", justification = "Database migrations mutate persistent schema/data.")
+
+prefix_rule(pattern = ["vercel", "deploy"], decision = "prompt", justification = "Deployment changes a remote environment.")
+prefix_rule(pattern = ["eas", "build"], decision = "prompt", justification = "Remote builds consume external resources and may publish artifacts.")
+prefix_rule(pattern = ["eas", "submit"], decision = "prompt", justification = "Submission publishes to external app stores.")
+prefix_rule(pattern = ["firebase", "deploy"], decision = "prompt", justification = "Deployment changes a remote environment.")
+prefix_rule(pattern = ["kubectl", "apply"], decision = "prompt", justification = "Kubernetes apply mutates cluster state.")
+prefix_rule(pattern = ["kubectl", "delete"], decision = "prompt", justification = "Kubernetes delete can remove live resources.")

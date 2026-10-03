@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Product;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -10,11 +11,13 @@ class CatalogInventoryTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $token;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        config(['app.api_token' => 'test-token']);
+        $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
     }
 
     public function test_name_search_returns_catalog_details_and_low_stock_state(): void
@@ -103,23 +106,46 @@ class CatalogInventoryTest extends TestCase
     {
         $this->seed();
 
-        $this->getJson('/api/v1/products/barcode/4800000000010', $this->headers())
+        $this->getJson('/api/v1/products/barcode/4800000000019', $this->headers())
             ->assertOk()
             ->assertJsonPath('data.sku', 'RICE-001')
+            ->assertJsonPath('data.barcode', '4800000000019')
+            ->assertJsonPath('data.name', 'Sinandomeng Rice 5kg')
+            ->assertJsonPath('data.price', 32000)
+            ->assertJsonPath('data.stock.quantity', 20)
+            ->assertJsonPath('data.stock.reorder_level', 5)
             ->assertJsonPath('data.stock.status', 'in_stock');
-        $this->getJson('/api/v1/products/barcode/4800000000027', $this->headers())
+        $this->getJson('/api/v1/products/barcode/4800000000026', $this->headers())
             ->assertOk()
+            ->assertJsonPath('data.barcode', '4800000000026')
+            ->assertJsonPath('data.name', 'Barako Coffee 250g')
+            ->assertJsonPath('data.price', 18500)
+            ->assertJsonPath('data.stock.quantity', 3)
+            ->assertJsonPath('data.stock.reorder_level', 5)
             ->assertJsonPath('data.stock.status', 'low_stock');
-        $this->getJson('/api/v1/products/barcode/4800000000034', $this->headers())
+        $this->getJson('/api/v1/products/barcode/4800000000033', $this->headers())
             ->assertOk()
+            ->assertJsonPath('data.barcode', '4800000000033')
+            ->assertJsonPath('data.name', 'Laundry Soap 500g')
+            ->assertJsonPath('data.price', 7500)
+            ->assertJsonPath('data.stock.quantity', 0)
+            ->assertJsonPath('data.stock.reorder_level', 5)
             ->assertJsonPath('data.stock.status', 'out_of_stock');
+        $this->getJson('/api/v1/products/barcode/4800000000040', $this->headers())
+            ->assertOk()
+            ->assertJsonPath('data.barcode', '4800000000040')
+            ->assertJsonPath('data.name', 'Mineral Water 1L')
+            ->assertJsonPath('data.price', 3500)
+            ->assertJsonPath('data.stock.quantity', 100)
+            ->assertJsonPath('data.stock.reorder_level', 5)
+            ->assertJsonPath('data.stock.status', 'in_stock');
     }
 
     /** @return array<string, string> */
     private function headers(): array
     {
         return [
-            'Authorization' => 'Bearer test-token',
+            'Authorization' => 'Bearer '.$this->token,
             'Accept' => 'application/json',
         ];
     }

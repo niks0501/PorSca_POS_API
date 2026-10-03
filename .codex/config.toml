@@ -1,0 +1,27 @@
+# AkiDev project-local Codex configuration.
+# This file belongs inside the repository and must not be copied to ~/.codex.
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+model_reasoning_effort = "high"
+
+project_doc_fallback_filenames = ["PROJECT_CHECKS.md", "PROJECT_CONTEXT.md"]
+project_doc_max_bytes = 32768
+
+
+# AkiDev manages only this project-local MCP block.
+# >>> AKIDEV MCP START
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@4.1.1"]
+env_vars = ["CONTEXT7_API_KEY"]
+startup_timeout_sec = 20
+enabled = true
+
+[mcp_servers.laravel-boost]
+command = "php"
+args = ["artisan", "boost:mcp"]
+enabled = true
+default_tools_approval_mode = "writes"
+
+# <<< AKIDEV MCP END
