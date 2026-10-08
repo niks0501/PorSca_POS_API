@@ -29,7 +29,7 @@ Unknown, revoked, expired, or deactivated-account tokens return `401`. A valid t
 
 ### Authentication
 
-`POST /auth/login` is public and rate limited to 5 attempts per minute per IP and email.
+`POST /auth/login` is public and rate limited to 5 attempts per minute per IP and email, with email casing normalized so capitalization variants share the same limit.
 
 Request:
 
@@ -63,7 +63,7 @@ Wrong credentials and deactivated accounts both return `401` with `error.code` `
 
 - `GET /users` returns `{ "data": { "items": [ ... ] } }`.
 - `POST /users` creates a cashier with `name`, `email`, and `password` (minimum 8 characters). The server always sets `role` to `cashier`; a supplied `role` is ignored.
-- `PATCH /users/{id}` updates `name`, `email`, `password`, and/or `is_active`. Setting `is_active` to `false` revokes every token for that user.
+- `PATCH /users/{id}` updates `name`, `email`, `password`, and/or `is_active`. Setting `is_active` to `false` revokes every token for that user. Reactivating an inactive user also removes any tokens left by older behavior, so they cannot become valid again.
 - `POST /users/{id}/deactivate` sets `is_active` to `false` and revokes every token, then returns `204`.
 
 ## Roles
