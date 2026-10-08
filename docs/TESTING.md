@@ -24,6 +24,16 @@ The Laravel tests cover:
 - atomic cash sales, insufficient cash/stock, and idempotent retries
 - sandbox-only PayMongo behavior
 
+## MySQL concurrency regression
+
+`ReservationConcurrencyTest` and `SettlementConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
+
+```sh
+php artisan test --filter='(ReservationConcurrencyTest|SettlementConcurrencyTest)'
+```
+
+These tests rebuild the selected database; never point them at staging or production. They use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm the competing transaction is waiting on that lock, then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+
 ## Postman collection
 
 The collection runs the HTTP contract in order: admin login, health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, signed practice webhook rejection of unsupported settlement, payment read again, sales, and transactions.

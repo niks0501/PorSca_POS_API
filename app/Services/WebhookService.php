@@ -60,6 +60,8 @@ class WebhookService
         if ($usingLinkedIntent && (($inspection['verified'] ?? false) !== true || ($inspection['resource_id'] ?? null) !== $providerId)) {
             $payment = null;
         }
+        // MySQL deadlocks roll back the entire transaction, including the event.
+        // Retrying only the nested settlement cannot recover this outer unit.
         try {
             $event = DB::transaction(function () use ($eventId, $type, $providerId, $payment, $inspection): WebhookEvent {
                 $event = WebhookEvent::query()->where('provider_event_id', $eventId)->lockForUpdate()->first();
@@ -88,7 +90,7 @@ class WebhookService
                 $event->update(['processed_at' => now(), 'processing_error' => null]);
 
                 return $event;
-            });
+            }, 3);
         } catch (UniqueConstraintViolationException) {
             return $this->result(WebhookEvent::where('provider_event_id', $eventId)->firstOrFail(), true);
         }
