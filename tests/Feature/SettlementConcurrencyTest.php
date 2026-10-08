@@ -94,7 +94,7 @@ class SettlementConcurrencyTest extends TestCase
             'body' => json_encode($inventoryRoute ? ['quantity' => 2] : ['stock' => 2, 'name' => 'Edited product'], JSON_THROW_ON_ERROR),
             'server' => $this->server(),
         ];
-        $results = $this->race([$this->settlementRequest($payment, $webhook), $stockRequest]);
+        $results = $this->race([$this->settlementRequest($payment, $webhook), $stockRequest], holderIndex: 1);
         $this->assertSame(Payment::PAID, $payment->fresh()->status);
         $this->assertSame(1, $results[0]['inspections']);
         $this->assertSame(0, $results[1]['inspections']);
@@ -130,8 +130,7 @@ class SettlementConcurrencyTest extends TestCase
     private function settlementRequest(Payment $payment, bool $webhook): array
     {
         if ($webhook) {
-            // Retryable audit rows avoid an unrelated missing-event gap lock
-            // blocking the barrier before both payment locks have been acquired.
+            // Retryable audit rows avoid an unrelated missing-event gap lock in the concurrency path.
             WebhookEvent::create([
                 'provider_event_id' => 'evt-race-'.$payment->id,
                 'event_type' => 'payment.paid', 'signature_valid' => true,
@@ -153,36 +152,52 @@ class SettlementConcurrencyTest extends TestCase
         ];
     }
 
-    private function worker(array $request, InputStream $input): Process
+    private function worker(array $request, InputStream $input, bool $holdSharedLock = false, bool $observeSharedLock = false): Process
     {
         $worker = new Process([PHP_BINARY, base_path('tests/Support/concurrent-settlement.php')], base_path());
         $worker->setTimeout(30);
         $worker->setInput($input);
-        $input->write(json_encode($request + ['connection' => config('database.connections.'.DB::getDefaultConnection())], JSON_THROW_ON_ERROR)."\n");
+        $input->write(json_encode($request + [
+            'connection' => config('database.connections.'.DB::getDefaultConnection()),
+            'hold_shared_lock' => $holdSharedLock,
+            'observe_shared_lock' => $observeSharedLock,
+        ], JSON_THROW_ON_ERROR)."\n");
 
         return $worker;
     }
 
-    private function race(array $requests): array
+    private function race(array $requests, int $holderIndex = 0): array
     {
         $streams = [new InputStream, new InputStream];
-        $workers = [$this->worker($requests[0], $streams[0]), $this->worker($requests[1], $streams[1])];
+        $workers = [];
+        $contenderIndex = 1 - $holderIndex;
+        $holderReleased = false;
         try {
-            foreach ($workers as $worker) {
-                $worker->start();
-                $this->assertTrue($worker->waitUntil(fn () => str_contains($worker->getOutput(), "worker-ready\n")), 'Worker did not reach the concurrent start barrier.');
-            }
-            foreach ($streams as $stream) {
-                $stream->write("continue\n");
-                $stream->close();
-            }
-            $results = array_map(fn (Process $worker) => $this->workerResult($worker), $workers);
+            $workers[$holderIndex] = $this->worker($requests[$holderIndex], $streams[$holderIndex], holdSharedLock: true);
+            $workers[$holderIndex]->start();
+            $this->assertTrue($workers[$holderIndex]->waitUntil(fn () => str_contains($workers[$holderIndex]->getOutput(), "shared-lock-held\n")), 'First worker did not acquire the shared product lock.');
+
+            $workers[$contenderIndex] = $this->worker($requests[$contenderIndex], $streams[$contenderIndex], observeSharedLock: true);
+            $workers[$contenderIndex]->start();
+            $this->assertTrue($workers[$contenderIndex]->waitUntil(fn () => str_contains($workers[$contenderIndex]->getOutput(), 'shared-lock-attempt:')), 'Competing worker did not reach the shared product lock.');
+            $this->assertSame(1, preg_match('/shared-lock-attempt:(\\d+)/', $workers[$contenderIndex]->getOutput(), $matches));
+            $this->assertTrue($this->waitForProductLockWait((int) $matches[1]), 'Competing transaction did not wait on the held product lock.');
+
+            $streams[$holderIndex]->write("continue\n");
+            $streams[$holderIndex]->close();
+            $holderReleased = true;
+            $streams[$contenderIndex]->close();
+            $results = [$this->workerResult($workers[0]), $this->workerResult($workers[1])];
             foreach ($results as $result) {
-                $this->assertSame(1, $result['attempts'], 'Concurrent requests must complete without a deadlock retry.');
+                $this->assertSame(1, $result['attempts'], 'Contending requests must complete without a deadlock retry.');
             }
 
             return $results;
         } finally {
+            if (! $holderReleased) {
+                $streams[$holderIndex]->write("continue\n");
+                $streams[$holderIndex]->close();
+            }
             foreach ($workers as $worker) {
                 if ($worker->isRunning()) {
                     $worker->stop();
@@ -194,11 +209,28 @@ class SettlementConcurrencyTest extends TestCase
         }
     }
 
+    private function waitForProductLockWait(int $connectionId): bool
+    {
+        $deadline = microtime(true) + 5;
+        do {
+            $transaction = DB::selectOne(
+                'SELECT trx_state, trx_query FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ?',
+                [$connectionId],
+            );
+            if ($transaction !== null && $transaction->trx_state === 'LOCK WAIT'
+                && str_contains(strtolower((string) $transaction->trx_query), 'products')) {
+                return true;
+            }
+            usleep(20_000);
+        } while (microtime(true) < $deadline);
+
+        return false;
+    }
+
     private function requestWithoutBarrier(array $request): void
     {
         $stream = new InputStream;
         $worker = $this->worker($request, $stream);
-        $stream->write("continue\n");
         $stream->close();
         $worker->start();
         $this->workerResult($worker);

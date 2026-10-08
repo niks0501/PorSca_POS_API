@@ -4,6 +4,7 @@ use App\Contracts\PaymentGateway;
 use App\Models\Payment;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -37,10 +38,30 @@ $gateway->shouldReceive('inspect')->andReturnUsing(function () use (&$inspection
     return ['verified' => true, 'status' => Payment::PAID];
 });
 $app->instance(PaymentGateway::class, $gateway);
-fwrite(STDOUT, "worker-ready\n");
-fflush(STDOUT);
-if (trim((string) fgets(STDIN)) !== 'continue') {
-    throw new RuntimeException('Concurrency barrier was not released.');
+if ($input['hold_shared_lock']) {
+    $paused = false;
+    DB::listen(function (QueryExecuted $query) use (&$paused): void {
+        $sql = strtolower($query->sql);
+        if ($paused || ! str_contains($sql, 'from `products`') || ! str_contains($sql, 'for update')) {
+            return;
+        }
+        $paused = true;
+        fwrite(STDOUT, "shared-lock-held\n");
+        fflush(STDOUT);
+        if (trim((string) fgets(STDIN)) !== 'continue') {
+            throw new RuntimeException('Shared lock was not released.');
+        }
+    });
+}
+if ($input['observe_shared_lock']) {
+    $connectionId = DB::selectOne('SELECT CONNECTION_ID() AS id')->id;
+    DB::connection()->beforeExecuting(function (string $sql) use ($connectionId): void {
+        $normalizedSql = strtolower($sql);
+        if (str_contains($normalizedSql, 'from `products`') && str_contains($normalizedSql, 'for update')) {
+            fwrite(STDOUT, 'shared-lock-attempt:'.$connectionId."\n");
+            fflush(STDOUT);
+        }
+    });
 }
 $kernel = $app->make(Kernel::class);
 $response = $kernel->handle(Request::create($input['path'], $input['method'], [], [], [], $input['server'], $input['body']));
