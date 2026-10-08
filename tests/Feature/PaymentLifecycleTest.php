@@ -151,6 +151,65 @@ class PaymentLifecycleTest extends TestCase
         $this->assertSame(4, $product->fresh()->inventory->quantity);
     }
 
+    public function test_cash_key_cannot_block_a_later_verified_settlement(): void
+    {
+        $this->assertSeparateCashAndSettlementKeys(false);
+    }
+
+    public function test_settlement_key_cannot_replay_a_qr_sale_for_a_cash_request(): void
+    {
+        $this->assertSeparateCashAndSettlementKeys(true);
+    }
+
+    private function assertSeparateCashAndSettlementKeys(bool $settleFirst): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $key = 'payment:'.$payment->id;
+        $headers = ['Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => $key];
+        $body = ['items' => [['product_id' => $product->id, 'quantity' => 1]], 'cash_received' => 600];
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
+
+        if ($settleFirst) {
+            $this->signed($this->event('evt-key-collision'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID);
+        }
+        $cash = $this->postJson('/api/v1/sales/cash', $body, $headers)->assertCreated()
+            ->assertJsonPath('data.payment_method', 'cash')->assertJsonPath('data.change_amount', 100);
+        if (! $settleFirst) {
+            $this->signed($this->event('evt-key-collision'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID);
+        }
+
+        $payment->refresh();
+        $this->assertNotSame($cash->json('data.id'), $payment->sale_id);
+        $this->assertSame('qrph', $payment->sale->payment_method);
+        $this->postJson('/api/v1/sales/cash', $body, $headers)->assertOk()->assertJsonPath('data.id', $cash->json('data.id'));
+        $this->postJson('/api/v1/sales/cash', [...$body, 'cash_received' => 700], $headers)->assertStatus(409);
+        $this->signed($this->event('evt-key-collision'))->assertOk()->assertJsonPath('data.payment.sale_id', $payment->sale_id);
+        $this->assertSame(2, Sale::count());
+        $this->assertDatabaseCount('sale_items', 2);
+        $this->assertSame(1, Transaction::where('type', 'cash_sale')->count());
+        $this->assertSame(1, Transaction::where('type', 'payment_succeeded')->count());
+        $this->assertSame(3, $product->fresh()->inventory->quantity);
+    }
+
+    public function test_internal_settlement_key_does_not_reserve_a_public_qr_checkout_key(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
+        $this->signed($this->event('evt-internal-key'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID);
+        config(['services.paymongo.secret_key' => '']);
+
+        $headers = ['Authorization' => 'Bearer '.$this->token, 'Idempotency-Key' => 'payment:'.$payment->id];
+        $body = ['items' => [['product_id' => $product->id, 'quantity' => 1]]];
+        $created = $this->postJson('/api/v1/payments', $body, $headers)->assertCreated();
+        $this->assertNotSame($payment->id, $created->json('data.id'));
+        $this->postJson('/api/v1/payments', $body, $headers)->assertOk()->assertJsonPath('data.id', $created->json('data.id'));
+        $this->postJson('/api/v1/sales/cash', [...$body, 'cash_received' => 500], $headers)->assertStatus(409);
+        $this->assertSame(1, Sale::count());
+        $this->assertSame(4, $product->fresh()->inventory->quantity);
+    }
+
     public function test_signature_freshness_live_mode_and_unknown_event_are_rejected_before_settlement(): void
     {
         $product = $this->product();

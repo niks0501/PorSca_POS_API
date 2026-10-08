@@ -27,6 +27,7 @@ class CashSaleService
         try {
             return DB::transaction(function () use ($idempotencyKey, $items, $cashReceived, $requestHash): Sale {
                 $existing = Sale::query()
+                    ->where('key_namespace', Sale::CHECKOUT_NAMESPACE)
                     ->where('idempotency_key', $idempotencyKey)
                     ->lockForUpdate()
                     ->first();
@@ -79,6 +80,7 @@ class CashSaleService
 
                 $changeAmount = $cashReceived - $total;
                 $sale = Sale::create([
+                    'key_namespace' => Sale::CHECKOUT_NAMESPACE,
                     'idempotency_key' => $idempotencyKey,
                     'request_hash' => $requestHash,
                     'total_amount' => $total,
@@ -119,7 +121,8 @@ class CashSaleService
             // If two requests arrive together, the database's unique
             // idempotency key is the final exactly-once guard. Return the row
             // created by the winner after its transaction has rolled back ours.
-            $existing = Sale::query()->where('idempotency_key', $idempotencyKey)->first();
+            $existing = Sale::query()->where('key_namespace', Sale::CHECKOUT_NAMESPACE)
+                ->where('idempotency_key', $idempotencyKey)->first();
             if ($existing === null) {
                 throw $exception;
             }
@@ -158,7 +161,8 @@ class CashSaleService
 
     private function assertSameRequest(Sale $sale, string $requestHash): void
     {
-        if ($sale->request_hash !== null && ! hash_equals((string) $sale->request_hash, $requestHash)) {
+        if ($sale->payment_method !== 'cash'
+            || ($sale->request_hash !== null && ! hash_equals((string) $sale->request_hash, $requestHash))) {
             throw new IdempotencyConflict;
         }
     }
