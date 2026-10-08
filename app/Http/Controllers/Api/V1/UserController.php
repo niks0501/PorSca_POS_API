@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class UserController extends ApiController
@@ -50,21 +51,29 @@ class UserController extends ApiController
             'is_active' => ['sometimes', 'boolean'],
         ]);
 
-        $user->fill($validated);
+        $user = DB::transaction(function () use ($user, $validated): User {
+            $user = User::query()->lockForUpdate()->findOrFail($user->id);
+            $user->fill($validated);
 
-        if (array_key_exists('is_active', $validated) && ! $user->is_active) {
-            $user->tokens()->delete();
-        }
+            if (array_key_exists('is_active', $validated) && ! $user->is_active) {
+                $user->tokens()->delete();
+            }
 
-        $user->save();
+            $user->save();
+
+            return $user;
+        });
 
         return $this->data(['user' => $this->userArray($user)]);
     }
 
     public function deactivate(User $user): Response
     {
-        $user->forceFill(['is_active' => false])->save();
-        $user->tokens()->delete();
+        DB::transaction(function () use ($user): void {
+            $user = User::query()->lockForUpdate()->findOrFail($user->id);
+            $user->forceFill(['is_active' => false])->save();
+            $user->tokens()->delete();
+        });
 
         return response()->noContent();
     }
