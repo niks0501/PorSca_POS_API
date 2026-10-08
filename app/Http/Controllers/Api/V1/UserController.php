@@ -50,11 +50,12 @@ class UserController extends ApiController
             'is_active' => ['sometimes', 'boolean'],
         ]);
 
-        if (array_key_exists('is_active', $validated) && $validated['is_active'] === false) {
+        $user->fill($validated);
+
+        if (array_key_exists('is_active', $validated) && ! $user->is_active) {
             $user->tokens()->delete();
         }
 
-        $user->fill($validated);
         $user->save();
 
         return $this->data(['user' => $this->userArray($user)]);
