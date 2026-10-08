@@ -51,6 +51,8 @@ if ($input['hold_shared_lock']) {
         if (trim((string) fgets(STDIN)) !== 'continue') {
             throw new RuntimeException('Shared lock was not released.');
         }
+        fwrite(STDOUT, "shared-lock-released\n");
+        fflush(STDOUT);
     });
 }
 if ($input['observe_shared_lock']) {

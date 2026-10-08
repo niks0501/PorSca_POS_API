@@ -185,6 +185,11 @@ class SettlementConcurrencyTest extends TestCase
 
             $streams[$holderIndex]->write("continue\n");
             $streams[$holderIndex]->close();
+            // InputStream::write only queues input. Pump the holder's pipes and
+            // acknowledge delivery before waiting on a blocked contender.
+            $this->assertTrue($workers[$holderIndex]->waitUntil(
+                fn () => str_contains($workers[$holderIndex]->getOutput(), "shared-lock-released\n"),
+            ), 'Holding worker did not acknowledge the shared-lock release.');
             $holderReleased = true;
             $streams[$contenderIndex]->close();
             $results = [$this->workerResult($workers[0]), $this->workerResult($workers[1])];
