@@ -4,7 +4,6 @@ use App\Contracts\PaymentGateway;
 use App\Models\Payment;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Contracts\Http\Kernel;
-use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -27,23 +26,6 @@ DB::connection()->beforeStartingTransaction(function ($connection) use (&$attemp
         $attempts++;
     }
 });
-$paused = false;
-DB::listen(function (QueryExecuted $query) use ($input, &$paused): void {
-    $table = $input['operation'] === 'settle' ? 'payments' : 'inventories';
-    if ($paused || ! str_contains($query->sql, 'from `'.$table.'`') || ! str_contains($query->sql, 'for update')) {
-        return;
-    }
-    // Both actors must hold their first conflicting lock before either proceeds.
-    // Pause only the first attempt: retries must rerun the entire transaction.
-    $paused = true;
-    fwrite(STDOUT, "lock-ready\n");
-    fflush(STDOUT);
-    if (trim((string) fgets(STDIN)) !== 'continue') {
-        throw new RuntimeException('Concurrency barrier was not released.');
-    }
-    fwrite(STDOUT, "lock-released\n");
-    fflush(STDOUT);
-});
 $inspections = 0;
 $gateway = Mockery::mock(PaymentGateway::class);
 $gateway->shouldReceive('inspect')->andReturnUsing(function () use (&$inspections): array {
@@ -55,6 +37,11 @@ $gateway->shouldReceive('inspect')->andReturnUsing(function () use (&$inspection
     return ['verified' => true, 'status' => Payment::PAID];
 });
 $app->instance(PaymentGateway::class, $gateway);
+fwrite(STDOUT, "worker-ready\n");
+fflush(STDOUT);
+if (trim((string) fgets(STDIN)) !== 'continue') {
+    throw new RuntimeException('Concurrency barrier was not released.');
+}
 $kernel = $app->make(Kernel::class);
 $response = $kernel->handle(Request::create($input['path'], $input['method'], [], [], [], $input['server'], $input['body']));
 fwrite(STDOUT, json_encode([

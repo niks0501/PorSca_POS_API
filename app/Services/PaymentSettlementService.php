@@ -20,10 +20,17 @@ class PaymentSettlementService
             throw new ApiException('Unsupported payment status.', 422, ['status' => ['Unsupported payment status.']]);
         }
 
-        // Reservation reads can lock another settlement's payment after inventory.
+        // Lock products and inventory before payment rows, matching stock edits and reservation reads.
         // Retry the whole unit; a webhook caller must also retry its outer transaction.
-        return DB::transaction(function () use ($payment, $status, $providerEventId, $metadata): Payment {
-            $paymentModel = Payment::query()->whereKey($payment instanceof Payment ? $payment->getKey() : $payment)->lockForUpdate()->firstOrFail();
+        $paymentId = $payment instanceof Payment ? $payment->getKey() : $payment;
+
+        return DB::transaction(function () use ($paymentId, $status, $providerEventId, $metadata): Payment {
+            if ($status === Payment::PAID) {
+                $productIds = Payment::query()->whereKey($paymentId)->firstOrFail()
+                    ->items()->orderBy('product_id')->pluck('product_id')->all();
+                $this->stock->lockSettlementResources($productIds);
+            }
+            $paymentModel = Payment::query()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
 
             if ($providerEventId !== null && Transaction::where('provider_event_id', $providerEventId)->exists()) {
                 return $paymentModel->fresh()->load('items.product', 'sale');

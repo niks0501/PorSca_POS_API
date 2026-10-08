@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\InsufficientStock;
 use App\Models\Inventory;
 use App\Models\Payment;
+use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -14,6 +15,14 @@ use Illuminate\Support\Facades\DB;
  */
 class ReservedStock
 {
+    public function lockSettlementResources(array $productIds): void
+    {
+        sort($productIds);
+        $productIds = array_values(array_unique($productIds));
+        Product::query()->whereIn('id', $productIds)->orderBy('id')->lockForUpdate()->get();
+        Inventory::query()->whereIn('product_id', $productIds)->orderBy('product_id')->lockForUpdate()->get();
+    }
+
     public function lockAndCheck(int $productId, int $quantity, string $name, ?int $ownPaymentId = null): Inventory
     {
         $inventory = Inventory::query()->where('product_id', $productId)->lockForUpdate()->first();

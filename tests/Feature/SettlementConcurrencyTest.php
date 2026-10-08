@@ -44,7 +44,7 @@ class SettlementConcurrencyTest extends TestCase
     }
 
     #[DataProvider('settlementPairs')]
-    public function test_two_paid_settlements_complete_after_a_real_deadlock(bool $firstWebhook, bool $secondWebhook): void
+    public function test_two_paid_settlements_complete_under_concurrency(bool $firstWebhook, bool $secondWebhook): void
     {
         $product = $this->product();
         $first = $this->checkout($product, 'first');
@@ -83,12 +83,11 @@ class SettlementConcurrencyTest extends TestCase
     }
 
     #[DataProvider('stockPairs')]
-    public function test_paid_settlement_and_stock_edit_complete_after_a_real_deadlock(bool $webhook, bool $inventoryRoute): void
+    public function test_paid_settlement_and_stock_edit_complete_under_concurrency(bool $webhook, bool $inventoryRoute): void
     {
         $product = $this->product();
         $payment = $this->checkout($product, 'stock-race');
         $stockRequest = [
-            'operation' => 'stock',
             'path' => '/api/v1/'.($inventoryRoute ? 'inventory/' : 'products/').$product->id,
             'method' => 'PATCH',
             // Equal to the initial stock; either serialization leaves sufficient stock.
@@ -149,7 +148,6 @@ class SettlementConcurrencyTest extends TestCase
         $server['HTTP_PAYMONGO_SIGNATURE'] = 't='.$timestamp.',te='.hash_hmac('sha256', $timestamp.'.'.$body, 'concurrency-fixture-secret');
 
         return [
-            'operation' => 'settle',
             'path' => $webhook ? '/api/v1/webhooks/paymongo' : '/api/v1/payments/'.$payment->id.'/refresh',
             'method' => 'POST', 'body' => $body, 'server' => $server,
         ];
@@ -172,20 +170,15 @@ class SettlementConcurrencyTest extends TestCase
         try {
             foreach ($workers as $worker) {
                 $worker->start();
-                $this->assertTrue($worker->waitUntil(fn () => str_contains($worker->getOutput(), "lock-ready\n")), 'Worker never acquired its first lock: '.$worker->getOutput().$worker->getErrorOutput());
+                $this->assertTrue($worker->waitUntil(fn () => str_contains($worker->getOutput(), "worker-ready\n")), 'Worker did not reach the concurrent start barrier.');
             }
             foreach ($streams as $stream) {
                 $stream->write("continue\n");
                 $stream->close();
             }
-            // Pump each process's input pipe before waiting for either result.
-            foreach ($workers as $worker) {
-                $this->assertTrue($worker->waitUntil(fn () => str_contains($worker->getOutput(), "lock-released\n")), 'Worker did not leave the barrier.');
-            }
             $results = array_map(fn (Process $worker) => $this->workerResult($worker), $workers);
-            $this->assertGreaterThan(2, array_sum(array_column($results, 'attempts')), 'The barrier must cause an actual deadlock and outer retry.');
             foreach ($results as $result) {
-                $this->assertLessThanOrEqual(3, $result['attempts']);
+                $this->assertSame(1, $result['attempts'], 'Concurrent requests must complete without a deadlock retry.');
             }
 
             return $results;
