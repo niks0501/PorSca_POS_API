@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\PaymentGateway;
 use App\Exceptions\ApiException;
+use App\Exceptions\PaymentGatewayException;
 use App\Models\Payment;
 use App\Models\WebhookEvent;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -46,7 +47,8 @@ class WebhookService
             return $this->result($event, true);
         }
         $payment = Payment::query()->where('provider_payment_id', $providerId)
-            ->orWhere('provider_resource_id', $providerId)->first();
+            ->orWhere('provider_resource_id', $providerId)
+            ->orWhere(fn ($query) => $query->whereNotNull('checkout_id')->where('provider_method_id', $providerId))->first();
         $linkedIntentId = data_get($resource, 'attributes.payment_intent_id');
         $usingLinkedIntent = false;
         if ($payment === null && is_string($linkedIntentId) && $linkedIntentId !== '') {
@@ -56,7 +58,14 @@ class WebhookService
         }
         // Provider GET is deliberately outside any database transaction. An event's status,
         // amount and currency are not trusted as authorization to sell.
-        $inspection = $payment === null ? null : $this->gateway->inspect($payment);
+        try {
+            $inspection = $payment === null ? null : $this->gateway->inspect($payment);
+        } catch (PaymentGatewayException $exception) {
+            if ($payment?->checkout_id === null) {
+                throw $exception;
+            }
+            $inspection = ['verified' => false];
+        }
         if ($usingLinkedIntent && (($inspection['verified'] ?? false) !== true || ($inspection['resource_id'] ?? null) !== $providerId)) {
             $payment = null;
         }
@@ -74,6 +83,12 @@ class WebhookService
                 }
                 if ($payment === null) {
                     $event->update(['processed_at' => now(), 'processing_error' => 'payment_not_found']);
+
+                    return $event;
+                }
+                if ($payment->checkout_id !== null) {
+                    app(CheckoutOutcomes::class)->observe($payment, $inspection ?? ['verified' => false], $eventId);
+                    $event->update(['processed_at' => now(), 'processing_error' => ($inspection['verified'] ?? false) ? null : 'provider_mismatch']);
 
                     return $event;
                 }
@@ -102,7 +117,8 @@ class WebhookService
     {
         $id = (string) (($event->payload ?? [])['resource_id'] ?? '');
         $payment = $id === '' ? null : Payment::query()->where('provider_payment_id', $id)
-            ->orWhere('provider_resource_id', $id)->first();
+            ->orWhere('provider_resource_id', $id)
+            ->orWhere(fn ($query) => $query->whereNotNull('checkout_id')->where('provider_method_id', $id))->first();
 
         return ['event' => $event, 'duplicate' => $duplicate, 'payment' => $payment?->load('items.product', 'sale')];
     }

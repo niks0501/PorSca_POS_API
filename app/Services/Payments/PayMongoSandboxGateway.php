@@ -53,7 +53,7 @@ class PayMongoSandboxGateway implements PaymentGateway
             if ($methodId === null) {
                 $method = $this->request('post', $this->resourceEndpoint($endpoint, 'payment_methods'), [
                     'data' => ['attributes' => [
-                        'type' => 'qrph', 'expiry_seconds' => (int) config('services.paymongo.qr_expiry_seconds', 1800),
+                        'type' => 'qrph', 'expiry_seconds' => $payment->qr_seconds ?? (int) config('services.paymongo.qr_expiry_seconds', 1800),
                     ]],
                 ], $payment->provider_operation_key.':method');
                 $methodId = (string) $method->json('data.id');
@@ -113,7 +113,17 @@ class PayMongoSandboxGateway implements PaymentGateway
             $payment->update(['provider_resource_id' => $resourceId]);
         }
 
+        $methodReference = data_get($attributes, 'payment_method.id') ?? ($attributes['payment_method'] ?? null);
+        // GATE-02 is deliberately not inferred from generic intent status.
+        // Approved account validation must establish this method/payment correlation first.
+        $attemptSpecific = $payment->checkout_id !== null && config('checkout.provider_finality_enabled')
+            && $verified && is_string($methodReference) && $methodReference === $payment->provider_method_id
+            && is_string($resourceId) && $resourceId !== '' && $resourceId === $payment->provider_resource_id;
+
         return [
+            'attempt_specific' => $attemptSpecific,
+            // No validated method-specific non-payability protocol exists yet.
+            'non_payable' => false,
             'status' => match ($status) {
                 'succeeded', 'paid' => Payment::PAID,
                 'failed', 'cancelled', 'canceled' => Payment::FAILED,
@@ -122,6 +132,27 @@ class PayMongoSandboxGateway implements PaymentGateway
             'verified' => $verified,
             'resource_id' => is_string($resourceId) ? $resourceId : null,
         ];
+    }
+
+    public function simulationCapability(Payment $payment): string
+    {
+        if (! app()->environment('staging') || ! config('checkout.simulation_enabled')
+            || config('services.paymongo.mode') !== 'sandbox' || $payment->checkout_id === null
+            || blank($payment->provider_payment_id) || str_starts_with($payment->provider_payment_id, 'sandbox_')) {
+            throw new PaymentGatewayException('Official simulation capability is unavailable.');
+        }
+        $response = $this->request('get', rtrim((string) config('services.paymongo.endpoint'), '/').'/'.$payment->provider_payment_id);
+        $attributes = (array) $response->json('data.attributes', []);
+        $methodReference = data_get($attributes, 'payment_method.id') ?? ($attributes['payment_method'] ?? null);
+        $url = data_get($attributes, 'next_action.code.test_url');
+        if ($response->json('data.id') !== $payment->provider_payment_id
+            || ($attributes['amount'] ?? null) !== $payment->amount || ($attributes['currency'] ?? null) !== 'PHP'
+            || ($attributes['livemode'] ?? null) !== false || $methodReference !== $payment->provider_method_id
+            || ! is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false || parse_url($url, PHP_URL_SCHEME) !== 'https') {
+            throw new PaymentGatewayException('Official simulation capability is unavailable.');
+        }
+
+        return $url;
     }
 
     public function status(Payment $payment): string
@@ -169,7 +200,7 @@ class PayMongoSandboxGateway implements PaymentGateway
     {
         foreach (['next_action.code.image_url', 'qr_code', 'qr_payload'] as $key) {
             $value = data_get($attributes, $key);
-            if (is_string($value) && $value !== '') {
+            if (is_string($value) && $value !== '' && $value !== data_get($attributes, 'next_action.code.test_url')) {
                 return $value;
             }
         }

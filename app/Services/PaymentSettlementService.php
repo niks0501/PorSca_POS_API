@@ -15,6 +15,11 @@ class PaymentSettlementService
 
     public function settle(Payment|int $payment, string $status, ?string $providerEventId = null, array $metadata = []): Payment
     {
+        $linked = $payment instanceof Payment ? $payment : Payment::findOrFail($payment);
+        if ($linked->checkout_id !== null) {
+            // A status string alone can never authorize the v3 checkout authority.
+            return app(CheckoutOutcomes::class)->observe($linked, $metadata['inspection'] ?? ['verified' => false], $providerEventId);
+        }
         $status = strtolower($status);
         if (! in_array($status, [Payment::PENDING, ...Payment::terminalStatuses()], true)) {
             throw new ApiException('Unsupported payment status.', 422, ['status' => ['Unsupported payment status.']]);

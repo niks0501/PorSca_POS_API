@@ -31,7 +31,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Cross-repo handshake
 
-- Contract: use `porsca-mobile-api-v2` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
+- Contract: checkout foundation targets `porsca-mobile-api-v3`; `porsca-mobile-api-v2` remains the RBAC-era compatibility contract. Verify the selected version in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md) before pairing; never rely on memory or treat an API-only candidate as paired.
 - Pair check: compare the exact full API and mobile commit SHAs in the current QA record with both repositories' `staging` tips, and confirm both contract documents name the same version.
 - Promotion: promote the exact paired revisions from `staging` to `main` together, and only after a human approves the formal QA cycle.
 
