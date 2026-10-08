@@ -41,7 +41,7 @@ class PaymentLifecycleTest extends TestCase
         Http::fake($routes);
     }
 
-    private function fakeCreation(): void
+    private function fakeCreation(bool $pluralPayments = false): void
     {
         $this->fakeHttp([
             'https://api.paymongo.test/v1/payment_intents' => Http::response(['data' => [
@@ -49,7 +49,8 @@ class PaymentLifecycleTest extends TestCase
             ]], 201),
             'https://api.paymongo.test/v1/payment_methods' => Http::response(['data' => ['id' => 'pm_fixture']], 201),
             'https://api.paymongo.test/v1/payment_intents/pi_fixture/attach' => Http::response(['data' => [
-                'attributes' => ['status' => 'awaiting_next_action', 'payment' => 'pay_fixture',
+                'attributes' => ['status' => 'awaiting_next_action',
+                    ...($pluralPayments ? ['payments' => [['id' => 'pay_fixture']]] : ['payment' => 'pay_fixture']),
                     'next_action' => ['code' => ['image_url' => 'data:image/png;base64,fixture']]],
             ]]),
             'https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('awaiting_next_action')),
@@ -62,6 +63,15 @@ class PaymentLifecycleTest extends TestCase
             'status' => $status, 'amount' => $amount, 'currency' => $currency, 'livemode' => $livemode,
             'payment' => 'pay_fixture',
         ]]];
+    }
+
+    private function pluralIntent(string $status): array
+    {
+        $intent = $this->intent($status);
+        unset($intent['data']['attributes']['payment']);
+        $intent['data']['attributes']['payments'] = [['id' => 'pay_fixture']];
+
+        return $intent;
     }
 
     private function product(int $stock = 5): Product
@@ -317,6 +327,56 @@ class PaymentLifecycleTest extends TestCase
         $this->signed($this->event('evt-alias-missing'))->assertOk()->assertJsonPath('data.payment.status', Payment::PAID);
         $this->assertSame(1, Sale::count());
         $this->assertSame('pay_fixture', $payment->fresh()->provider_resource_id);
+    }
+
+    public function test_creation_persists_payment_alias_from_plural_payments(): void
+    {
+        $this->fakeCreation(pluralPayments: true);
+        $payment = $this->start($this->product());
+
+        $this->assertSame('pay_fixture', $payment->provider_resource_id);
+        $this->assertSame(Payment::PENDING, $payment->status);
+        $this->assertSame(0, Sale::count());
+    }
+
+    public function test_succeeded_plural_payments_links_missing_alias_and_records_sale_once(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $payment->update(['provider_resource_id' => null]);
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->pluralIntent('succeeded'))]);
+        $event = $this->event('evt-plural-paid');
+
+        $this->signed($event)->assertOk()
+            ->assertJsonPath('data.payment.id', $payment->id)
+            ->assertJsonPath('data.payment.status', Payment::PAID);
+        $payment->refresh();
+        $this->assertSame('pay_fixture', $payment->provider_resource_id);
+        $this->assertSame(Sale::firstOrFail()->id, $payment->sale_id);
+        $this->assertSame(1, Sale::count());
+        $this->assertSame(1, Transaction::where('type', 'payment_succeeded')->count());
+        $this->assertSame(4, $product->fresh()->inventory->quantity);
+        $this->assertNull(WebhookEvent::where('provider_event_id', 'evt-plural-paid')->firstOrFail()->processing_error);
+
+        $this->signed($event)->assertOk()->assertJsonPath('data.duplicate', true)
+            ->assertJsonPath('data.payment.sale_id', $payment->sale_id);
+        $this->assertSame(1, Sale::count());
+        $this->assertSame(1, Transaction::where('type', 'payment_succeeded')->count());
+        $this->assertSame(4, $product->fresh()->inventory->quantity);
+    }
+
+    public function test_plural_payments_does_not_authorize_an_unmatched_webhook_resource(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $payment->update(['provider_resource_id' => null]);
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->pluralIntent('succeeded'))]);
+
+        $this->signed($this->event('evt-plural-unmatched', 'payment.paid', 'pay_someone_else'))
+            ->assertOk()->assertJsonPath('data.payment', null);
+        $this->assertSame(Payment::PENDING, $payment->fresh()->status);
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(5, $product->fresh()->inventory->quantity);
     }
 
     public function test_unmatched_payment_and_false_intent_association_cannot_settle(): void

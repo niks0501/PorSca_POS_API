@@ -75,7 +75,8 @@ class PayMongoSandboxGateway implements PaymentGateway
         if ($qr === null) {
             throw new PaymentGatewayException('PayMongo did not return a QR Ph image.');
         }
-        $resourceId = data_get($intentAttributes, 'payment.id') ?? data_get($intentAttributes, 'payment');
+        $resourceId = data_get($intentAttributes, 'payments.0.id')
+            ?? data_get($intentAttributes, 'payment.id') ?? data_get($intentAttributes, 'payment');
         if (! is_string($resourceId)) {
             $resourceId = null;
         }
@@ -102,7 +103,8 @@ class PayMongoSandboxGateway implements PaymentGateway
         $attributes = (array) $response->json('data.attributes', []);
         $providerId = (string) $response->json('data.id');
         $status = strtolower((string) ($attributes['status'] ?? ''));
-        $resourceId = data_get($attributes, 'payment.id') ?? data_get($attributes, 'payment');
+        $resourceId = data_get($attributes, 'payments.0.id')
+            ?? data_get($attributes, 'payment.id') ?? data_get($attributes, 'payment');
         $verified = $providerId === $payment->provider_payment_id
             && ($attributes['amount'] ?? null) === $payment->amount
             && ($attributes['currency'] ?? null) === 'PHP'
