@@ -72,6 +72,45 @@ class SettlementConcurrencyTest extends TestCase
         $this->assertSame(0, $product->fresh()->inventory->quantity);
     }
 
+    #[DataProvider('samePaymentOutcomes')]
+    public function test_concurrent_redelivery_returns_committed_payment_state(string $outcome, string $expectedStatus): void
+    {
+        $product = $this->product();
+        $payment = $this->checkout($product, 'same-payment-'.$outcome);
+        if ($outcome === 'unfulfilled') {
+            $product->inventory()->update(['quantity' => 0]);
+        }
+
+        $results = $this->race([
+            $this->settlementRequest($payment, false),
+            $this->settlementRequest($payment, false),
+        ]);
+        $committedPayment = $payment->fresh();
+        $this->assertSame($expectedStatus, $committedPayment->status);
+        foreach ($results as $result) {
+            $responsePayment = $result['body']['data'];
+            $this->assertSame(200, $result['http_status']);
+            $this->assertSame($expectedStatus, $responsePayment['status']);
+            $this->assertSame($committedPayment->sale_id, $responsePayment['sale_id']);
+            $this->assertSame($committedPayment->failure_reason, $responsePayment['failure_reason']);
+            $this->assertSame($committedPayment->paid_at?->toISOString(), $responsePayment['paid_at']);
+        }
+        $this->assertSame(1, Transaction::where('payment_id', $payment->id)->where('type', $outcome === 'paid' ? 'payment_succeeded' : 'payment_paid_unfulfilled')->count());
+        $this->assertSame($expectedStatus === Payment::PAID ? 1 : 0, Sale::count());
+        $this->assertSame($expectedStatus === Payment::PAID ? 1 : 0, $product->fresh()->inventory->quantity);
+        if ($outcome === 'unfulfilled') {
+            $this->assertSame('stock_reconciliation_required', $committedPayment->failure_reason);
+        }
+    }
+
+    public static function samePaymentOutcomes(): array
+    {
+        return [
+            'fulfilled' => ['paid', Payment::PAID],
+            'reconciliation required' => ['unfulfilled', Payment::PAID_UNFULFILLED],
+        ];
+    }
+
     public static function stockPairs(): array
     {
         return [

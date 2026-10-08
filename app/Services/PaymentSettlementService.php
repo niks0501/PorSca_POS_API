@@ -33,14 +33,14 @@ class PaymentSettlementService
             $paymentModel = Payment::query()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
 
             if ($providerEventId !== null && Transaction::where('provider_event_id', $providerEventId)->exists()) {
-                return $paymentModel->fresh()->load('items.product', 'sale');
+                return $this->loadCurrentPaymentRelations($paymentModel);
             }
 
             // A terminal result is never downgraded or reprocessed. This is the
             // primary guard against duplicate webhook/payment delivery.
             if (in_array($paymentModel->status, [Payment::PAID, Payment::PAID_UNFULFILLED], true)
                 || (in_array($paymentModel->status, Payment::terminalStatuses(), true) && $status !== Payment::PAID)) {
-                return $paymentModel->fresh()->load('items.product', 'sale');
+                return $this->loadCurrentPaymentRelations($paymentModel);
             }
 
             if ($status === Payment::PENDING) {
@@ -109,6 +109,16 @@ class PaymentSettlementService
 
             return $paymentModel->fresh()->load('items.product', 'sale.items.product');
         }, 3);
+    }
+
+    private function loadCurrentPaymentRelations(Payment $payment): Payment
+    {
+        $payment->load('items.product');
+        $sale = $payment->sale_id === null
+            ? null
+            : Sale::query()->whereKey($payment->sale_id)->lockForUpdate()->first()?->load('items.product');
+
+        return $payment->setRelation('sale', $sale);
     }
 
     private function recordTransaction(
