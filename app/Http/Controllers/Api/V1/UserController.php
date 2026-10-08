@@ -53,9 +53,10 @@ class UserController extends ApiController
 
         $user = DB::transaction(function () use ($user, $validated): User {
             $user = User::query()->lockForUpdate()->findOrFail($user->id);
+            $wasInactive = ! $user->is_active;
             $user->fill($validated);
 
-            if (array_key_exists('is_active', $validated) && ! $user->is_active) {
+            if (array_key_exists('is_active', $validated) && ($wasInactive || ! $user->is_active)) {
                 $user->tokens()->delete();
             }
 

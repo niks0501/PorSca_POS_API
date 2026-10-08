@@ -175,6 +175,27 @@ class UserManagementTest extends TestCase
         $this->getJson('/api/v1/auth/me')->assertOk();
     }
 
+    public function test_reactivating_an_inactive_cashier_revokes_tokens_left_by_an_older_bug(): void
+    {
+        $admin = User::factory()->create();
+        $cashier = User::factory()->cashier()->inactive()->create();
+        $cashierToken = $this->tokenFor($cashier);
+
+        $this->withToken($cashierToken);
+        $this->getJson('/api/v1/auth/me')->assertUnauthorized();
+
+        $this->withToken($this->tokenFor($admin));
+        $this->patchJson('/api/v1/users/'.$cashier->id, ['is_active' => true])
+            ->assertOk()->assertJsonPath('data.user.is_active', true);
+
+        $this->assertSame(0, $cashier->tokens()->count());
+        $this->withToken($cashierToken);
+        $this->getJson('/api/v1/auth/me')->assertUnauthorized();
+
+        $this->withToken($this->tokenFor($cashier->fresh()));
+        $this->getJson('/api/v1/auth/me')->assertOk();
+    }
+
     public function test_patching_an_active_cashier_does_not_revoke_tokens(): void
     {
         $cashier = User::factory()->cashier()->create();
