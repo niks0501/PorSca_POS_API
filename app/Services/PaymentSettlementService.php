@@ -82,6 +82,7 @@ class PaymentSettlementService
             }
 
             $sale = Sale::create([
+                'key_namespace' => Sale::SETTLEMENT_NAMESPACE,
                 'idempotency_key' => 'payment:'.$paymentModel->id,
                 'total_amount' => $paymentModel->amount,
                 'currency' => $paymentModel->currency,

@@ -33,7 +33,7 @@ class CheckoutService
 
         try {
             $payment = DB::transaction(function () use ($idempotencyKey, $items, $requestHash, $expirySeconds): Payment {
-                if (Sale::where('idempotency_key', $idempotencyKey)->exists()) {
+                if (Sale::where('key_namespace', Sale::CHECKOUT_NAMESPACE)->where('idempotency_key', $idempotencyKey)->exists()) {
                     throw new IdempotencyConflict;
                 }
                 $products = Product::query()->whereIn('id', array_keys($items))->where('active', true)
