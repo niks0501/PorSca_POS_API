@@ -35,7 +35,7 @@ PorSca's Laravel REST API is the source of truth for point-of-sale products, inv
 
 ## External contracts
 
-- The release-unit contract is `porsca-mobile-api-v2`; verify it against the mobile repository's contract before pairing revisions.
+- The current checkout contract and v2 compatibility boundary are documented in `docs/ARCHITECTURE.md`; verify them against the mobile repository's contract before pairing revisions.
 - The API base URL ends at `/api/v1`. See `docs/ARCHITECTURE.md` for endpoint, authentication, error, payment, and webhook details.
 - `postman/` contains the API collection and environment template; use the workflow in `docs/TESTING.md` when an HTTP contract check is required.
 
