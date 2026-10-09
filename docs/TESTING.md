@@ -24,6 +24,20 @@ The Laravel tests cover:
 - atomic cash sales, insufficient cash/stock, and idempotent retries
 - sandbox-only PayMongo behavior
 
+## Checkout v3 boundary coverage
+
+`CheckoutRulesTest` exercises pure money, evidence-classification and transition locks. `CheckoutAuthorityTest` executes the v3 HTTP resources: durable identity and store recovery, cash/attempt idempotency, centavo validation, quote acceptance, active-account/role denial, pending/unknown and hold expiry, late fulfillment, contradiction preservation, evidence-classed/versioned reconciliation, signed webhook convergence and staging-admin-only simulation retrieval. It uses fake provider evidence/HTTP and does **not** close PayMongo GATE-01..06. The original missing-resource tests were observed red before implementation.
+
+`CheckoutAuthorityConcurrencyTest` is skipped on SQLite. Against a disposable MySQL test database with the normal DB variables, run:
+
+```sh
+php artisan test --filter='(CheckoutAuthorityTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest)'
+```
+
+These tests rebuild/truncate only the selected test database. The v3 concurrency tests issue real HTTP requests in independent processes under `REPEATABLE READ`, pause behind a parent-held product row lock, assert neither worker acquired the lock early, and release them to race. Different Cash keys cannot finalize twice; duplicate Cash keys return the same receipt; duplicate QR keys create one attempt/hold; duplicate paid refreshes create one sale/ledger/deduction; concurrent case updates accept one version and reject the stale writer. Provider I/O is asserted outside transactions. Unlike the existing settlement suite's exact `information_schema.innodb_trx` wait observer, this v3 barrier does not need a global MySQL PROCESS privilege.
+
+See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and fail-closed provider gates. The retained Newman collection exercises the v2 compatibility surface; new v3 proof is in Feature tests, not an assertion that the old collection covers these resources.
+
 ## MySQL concurrency regression
 
 `ReservationConcurrencyTest` and `SettlementConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:

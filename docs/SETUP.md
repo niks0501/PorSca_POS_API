@@ -83,6 +83,8 @@ Copy `.env.example` before local work. `.env` is ignored by git. Never put these
 - `PAYMONGO_WEBHOOK_SECRET`
 - `ADMIN_PASSWORD`
 
+The v3 checkout defaults and fail-closed provider/simulation gates are documented in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md#configuration-and-provider-gates). `CHECKOUT_HOLD_SECONDS` defaults to 1800 and must equal `PAYMONGO_QR_EXPIRY_SECONDS` for new QR attempts; both values/timestamps are stored independently. `CHECKOUT_SIMULATION_ENABLED` and `CHECKOUT_PROVIDER_FINALITY_ENABLED` default to false. Do not enable them as a substitute for the open provider validation gates.
+
 The default `PAYMONGO_MODE=sandbox` is required. The API refuses to use a production mode. With no PayMongo secret, checkout returns a clearly labeled local sandbox QR practice payload. Product, stock, checkout, and all non-QR flows still run.
 
 For a local request, first sign in at `POST /api/v1/auth/login` with the seeded admin email and password, then send `Authorization: Bearer <token>` with the returned token. The seeded rice product can be looked up with `GET /api/v1/products/barcode/4800000000019`; coffee is low stock and soap is out of stock for catalog and inventory checks.

@@ -161,6 +161,12 @@ The Funnel URL must be stable for the complete QA cycle. Do not use a temporary 
 
 The mobile build must use the full URL ending in `/api/v1`. A phone must not use `localhost`.
 
+## Checkout v3 promotion boundary
+
+`porsca-mobile-api-v2` names the shipped RBAC-era contract; the new durable checkout resources use `porsca-mobile-api-v3`, retaining `/api/v1` and the old endpoints for compatibility. This foundation is an API-only candidate, not authorization to promote: update the mobile single API client and its contract document to v3, select exact paired full SHAs, run both repositories' checks, and obtain human formal QA approval before paired promotion. Existing v2 mobile clients do not obtain v3 recovery/exclusivity by merely changing a header.
+
+Deploy the additive checkout migration with payment/checkout writers paused, then the matching API code; preserve old records with null new fields rather than fabricated historical identities. Rollback with any v3 checkout records is refused to protect financial/audit history; use an operator-owned archival/reconciliation plan, not deletion. [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) defines requests, states, gates and evidence semantics. GATE-01..06 remain open; deterministic fixtures are not official PayMongo acceptance. Simulation retrieval is explicitly enabled staging-admin-only, and provider finality is fail-closed until the required attempt correlation is validated. The current adapter never infers non-payability from intent failure, expiry timers or hold release.
+
 ## Release handoff
 
 The staging record must name the exact API commit, the exact mobile commit, the baseline version, the database environment, the stable URL, and the PayMongo sandbox context. Follow [QA-CYCLE.md](QA-CYCLE.md). Human QA owns the final approval.

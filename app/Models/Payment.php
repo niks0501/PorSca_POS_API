@@ -37,6 +37,9 @@ class Payment extends Model
             'provider_metadata' => 'array',
             'paid_at' => 'datetime',
             'reservation_expires_at' => 'datetime',
+            'qr_expires_at' => 'datetime',
+            'hold_seconds' => 'integer',
+            'qr_seconds' => 'integer',
         ];
     }
 

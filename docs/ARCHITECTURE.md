@@ -1,6 +1,6 @@
 # API architecture and mobile contract
 
-**Contract version for this release unit: `porsca-mobile-api-v2`. Verify this value against the mobile repository's `docs/API-CONTRACT.md` before pairing revisions.**
+**Checkout foundation candidate contract: `porsca-mobile-api-v3`. The RBAC-era `porsca-mobile-api-v2` routes remain compatible; v3 adds the durable checkout authority resources documented in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md). The URL base remains `/api/v1`. Verify the selected version against the mobile repository's `docs/API-CONTRACT.md` before pairing revisions; this API-only candidate is not yet a paired release.**
 
 ## Authority
 
@@ -137,6 +137,8 @@ Barcode values must be numeric and 8–64 digits and unique. Prices and stock qu
 Sales deduct stock only as part of a successful cash sale or payment settlement. Authorized inventory operations can set stock for product management; these writes use the same inventory row and transaction boundary as the product update.
 
 ### Checkout and payments
+
+The following cash/payment endpoints are the retained **v2 compatibility surface**; the legacy lifecycle details below apply only to payments without a v3 checkout link. Checkout Simulation clients must use the **v3 logical-checkout resources** in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md), not independent legacy cash/payment calls to switch tender. Existing records are not assigned invented checkout identities or operator attribution. Linked v3 payments always route refresh/webhook settlement through the v3 authority, including when accessed through legacy payment aliases; their lifecycle, reservation, and finality rules are defined in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md).
 
 `POST /sales` and `POST /sales/cash` complete a cash sale. `POST /sales/checkout` also completes a cash sale when `payment_method` is `cash`; without that field it retains the pending QR Ph behavior. Cash requests accept `product_id`/`productId` and `quantity` line items, plus `cash_received`/`cashReceived`. A supplied client `total` or line `unit_price` is ignored. The API reads current product prices, computes the total, locks and revalidates every inventory row immediately before writing, then records the sale, sale items, ledger transaction, and stock deductions in one database transaction.
 

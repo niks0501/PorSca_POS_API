@@ -29,13 +29,22 @@ DB::connection()->beforeStartingTransaction(function ($connection) use (&$attemp
 });
 $inspections = 0;
 $gateway = Mockery::mock(PaymentGateway::class);
-$gateway->shouldReceive('inspect')->andReturnUsing(function () use (&$inspections): array {
+$gateway->shouldReceive('inspect')->andReturnUsing(function () use (&$inspections, $input): array {
     if (DB::transactionLevel() !== 0) {
         throw new RuntimeException('Provider inspection ran inside a transaction.');
     }
     $inspections++;
 
-    return ['verified' => true, 'status' => Payment::PAID];
+    return $input['inspection'] ?? ['verified' => true, 'status' => Payment::PAID];
+});
+$gateway->shouldReceive('createQrPayment')->andReturnUsing(function (Payment $payment): array {
+    if (DB::transactionLevel() !== 0) {
+        throw new RuntimeException('Provider creation ran inside a transaction.');
+    }
+    $payment->update(['provider_method_id' => 'pm_'.$payment->id, 'provider_resource_id' => 'pay_'.$payment->id]);
+
+    return ['provider_payment_id' => 'pi_'.$payment->id, 'qr_payload' => 'data:image/png;base64,fixture',
+        'checkout_url' => null, 'metadata' => ['driver' => 'test-only']];
 });
 $app->instance(PaymentGateway::class, $gateway);
 if ($input['hold_shared_lock']) {
@@ -56,10 +65,18 @@ if ($input['hold_shared_lock']) {
     });
 }
 if ($input['observe_shared_lock']) {
+    $lockTable = $input['observe_table'] ?? 'products';
+    DB::listen(function (QueryExecuted $query) use ($lockTable): void {
+        $sql = strtolower($query->sql);
+        if (str_contains($sql, 'from `'.$lockTable.'`') && str_contains($sql, 'for update')) {
+            fwrite(STDOUT, "shared-lock-acquired\n");
+            fflush(STDOUT);
+        }
+    });
     $connectionId = DB::selectOne('SELECT CONNECTION_ID() AS id')->id;
-    DB::connection()->beforeExecuting(function (string $sql) use ($connectionId): void {
+    DB::connection()->beforeExecuting(function (string $sql) use ($connectionId, $lockTable): void {
         $normalizedSql = strtolower($sql);
-        if (str_contains($normalizedSql, 'from `products`') && str_contains($normalizedSql, 'for update')) {
+        if (str_contains($normalizedSql, 'from `'.$lockTable.'`') && str_contains($normalizedSql, 'for update')) {
             fwrite(STDOUT, 'shared-lock-attempt:'.$connectionId."\n");
             fflush(STDOUT);
         }
