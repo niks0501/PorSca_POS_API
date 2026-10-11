@@ -16,6 +16,8 @@ Run the one required repository check:
 composer verify
 ```
 
+Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`.
+
 Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Documentation map
@@ -40,11 +42,13 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 - Never merge or promote a release.
 - Never approve a QA round; final QA approval belongs to a human.
 - Secrets and webhook verification material stay server-side; use [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#paymongo-webhook) for the signed sandbox protocol and the documented nested event resource (`data.attributes.data`). Real PayMongo QA needs operator-owned credentials and a stable webhook URL; the mobile Leave payment action is a separate stage C follow-up.
+- For webhook diagnosis or payload research, read the local webhook contract before external provider docs and verify cited payload paths against it.
 - Staging is the workbench; `main` is the shop window.
 
 ## Freshness
 
 A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`. Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
+Before opening the PR, check its final diff for the corresponding root-guidance update; running the initializer is not a freshness check.
 
 ## Maintaining this file
 
