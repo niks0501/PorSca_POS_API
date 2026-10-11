@@ -179,7 +179,7 @@ The response contains:
     "currency": "PHP",
     "payment_method": "qrph",
     "status": "pending",
-    "qr_payload": "https://sandbox.paymongo.test/qr/...",
+    "qr_payload": "PORSCA PRACTICE ONLY - NOT A PAYMENT - 1-550e8400-e29b-41d4-a716-446655440000",
     "checkout_url": null,
     "sale_id": null,
     "failure_reason": null,
@@ -190,13 +190,11 @@ The response contains:
 }
 ```
 
-With no secret key, `provider_payment_id` starts with `sandbox_` and the QR value is a local practice value. It does not charge money. With a key, the server calls the PayMongo sandbox and still asks only for `qrph`.
+Without a PayMongo secret, `provider_payment_id` starts with `sandbox_` and `qr_payload` is the unique plain-text value labeled `PORSCA PRACTICE ONLY - NOT A PAYMENT`, as shown above. The mobile client can encode that text into a QR symbol for display practice; it is not a provider payment QR and cannot settle as paid. With a configured sandbox secret, the API creates the PaymentIntent, QR Ph PaymentMethod, and attachment server-side and requests only `qrph`; the provider's `next_action.code.image_url` is returned as `qr_payload` with the payment identifier. The provider `test_url` is operator-only and is never returned.
 
 `GET /payments/{id}` returns the stored payment. `GET /payments/{id}/status` is an alias for that read. `POST /payments/{id}/refresh` (or `POST /payments/{id}/status`) asks the PayMongo sandbox for the latest status; **it is not a cancellation endpoint**. The cashier may leave the QR screen, but this does not cancel a payable attempt. Statuses are `pending`, `paid`, `failed`, `expired`, and `paid_unfulfilled` (money received but stock unavailable: operator reconciliation/refund required). `cancelled` remains readable for legacy attempts; no new local cancel action is provided. Mobile's Leave payment wording is stage C follow-up.
 
-With a configured sandbox secret, the API creates the PaymentIntent, QR Ph PaymentMethod, and attachment entirely server-side. The mobile client receives only the provider payment identifier and QR payload. Without a secret, the response is explicitly labeled as a local practice fixture and does not charge money.
-
-Reservations expire at the configured QR lifetime (60–9000 seconds). Every cash sale, QR checkout and stock-reducing product/inventory edit locks inventory and respects other active reservations. Paid settlement locks its products and inventory in ascending product order before locking the payment row, matching the stock-edit lock order and preventing settlement/stock-edit deadlocks. Reservation totals use current locking reads after the inventory lock; under MySQL `REPEATABLE READ`, locking inventory alone does not refresh an earlier transaction snapshot. Verified `qrph.expired` releases the reservation; an intent returning to `awaiting_payment_method` is not evidence of failed money movement. An authoritative paid intent matching the immutable ID, amount, PHP and sandbox mode commits payment, sale, items, success ledger and deduction together. Duplicate/out-of-order webhook and refresh return the same sale; late failure cannot downgrade paid. If paid arrives after expiry/release and stock cannot be fulfilled, status becomes `paid_unfulfilled`, with no sale or deduction and a reconciliation ledger row; manual refund or inventory resolution is required. Provider/network uncertainty remains pending, not paid. An unverified local practice fixture **cannot** settle as paid. A QR image is returned in `qr_payload` (`next_action.code.image_url`); provider `test_url` is operator-only and never returned.
+Reservations expire at the configured QR lifetime (60–9000 seconds). Every cash sale, QR checkout and stock-reducing product/inventory edit locks inventory and respects other active reservations. Paid settlement locks its products and inventory in ascending product order before locking the payment row, matching the stock-edit lock order and preventing settlement/stock-edit deadlocks. Reservation totals use current locking reads after the inventory lock; under MySQL `REPEATABLE READ`, locking inventory alone does not refresh an earlier transaction snapshot. Verified `qrph.expired` releases the reservation; an intent returning to `awaiting_payment_method` is not evidence of failed money movement. An authoritative paid intent matching the immutable ID, amount, PHP and sandbox mode commits payment, sale, items, success ledger and deduction together. Duplicate/out-of-order webhook and refresh return the same sale; late failure cannot downgrade paid. If paid arrives after expiry/release and stock cannot be fulfilled, status becomes `paid_unfulfilled`, with no sale or deduction and a reconciliation ledger row; manual refund or inventory resolution is required. Provider/network uncertainty remains pending, not paid.
 
 ### Sales
 
