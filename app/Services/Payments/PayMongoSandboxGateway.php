@@ -19,7 +19,7 @@ class PayMongoSandboxGateway implements PaymentGateway
         if ($secret === '') {
             return [
                 'provider_payment_id' => 'sandbox_'.Str::uuid(),
-                'qr_payload' => 'https://sandbox.paymongo.test/qr/'.Str::uuid(),
+                'qr_payload' => 'PORSCA PRACTICE ONLY - NOT A PAYMENT - '.($payment->id ?? 'attempt').'-'.Str::uuid(),
                 'checkout_url' => null,
                 'metadata' => ['driver' => 'local-sandbox-fixture', 'payment_method' => 'qrph'],
             ];

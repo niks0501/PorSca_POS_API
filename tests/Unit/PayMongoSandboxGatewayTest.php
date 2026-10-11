@@ -18,7 +18,13 @@ class PayMongoSandboxGatewayTest extends TestCase
         $result = (new PayMongoSandboxGateway)->createQrPayment($payment);
 
         $this->assertStringStartsWith('sandbox_', $result['provider_payment_id']);
-        $this->assertStringContainsString('sandbox', $result['qr_payload']);
+        $this->assertStringContainsString('PRACTICE ONLY', $result['qr_payload']);
+        $this->assertStringContainsString('NOT A PAYMENT', $result['qr_payload']);
+        $this->assertFalse(filter_var($result['qr_payload'], FILTER_VALIDATE_URL));
+        $this->assertIsString($result['qr_payload']);
+        $this->assertSame($result['qr_payload'], (string) $result['qr_payload']);
+        $nextAttempt = (new PayMongoSandboxGateway)->createQrPayment($payment);
+        $this->assertNotSame($result['qr_payload'], $nextAttempt['qr_payload']);
         $this->assertSame('local-sandbox-fixture', $result['metadata']['driver']);
     }
 
