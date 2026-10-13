@@ -41,6 +41,13 @@ jobs:
           # Do not roll back staging when a queued/manual run has become stale.
           test "$(git rev-parse FETCH_HEAD)" = "$1"
           git reset --hard "$1" >/dev/null
+          # Restore PHP-FPM write access after reset (deploy owns tracked files).
+          for path in storage bootstrap/cache; do
+            if [ -d "$path" ]; then
+              chgrp -R www-data "$path"
+              chmod -R g+rwX "$path"
+            fi
+          done
           composer install --no-dev --optimize-autoloader --no-interaction --no-progress
           php artisan config:clear
           php artisan migrate --force
