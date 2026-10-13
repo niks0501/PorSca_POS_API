@@ -28,138 +28,147 @@ Merging into `staging` while the runners are down is allowed only when:
 
 Promoting into `main` still waits for green checks or a completed human QA round with approval. Quotas reset monthly, so this is temporary. Narrowing check triggers is a separate later decision.
 
-## Isolated database
+## Permanent host: alwaysdata Free
 
-Staging uses its own MySQL database, `porsca_staging`. Do not point it at the developer database. Set these values on the staging machine and keep real secrets there:
+Use the no-card **Free** managed PHP plan. The permanent API origin is
+`https://<account>.alwaysdata.net/api/v1`; `<account>` is deliberately unchosen.
+Choose it once: changing the origin requires a new manually built preview app.
+The operator checklist is [issue 37](https://github.com/niks0501/PorSca_POS_API/issues/37).
+No automatic preview builds, auto-merge, or QA approvals are introduced.
+
+### Site and isolated MariaDB
+
+In the alwaysdata panel, create a PHP site at `<account>.alwaysdata.net` with
+document root **`/home/<account>/porsca-api/public`**, never the project root.
+Select a PHP version compatible with `composer.lock` for both the site and SSH CLI.
+Enable HTTPS. Create a dedicated MariaDB staging database and user in the panel;
+use its exact prefixed database name and grants, not the developer database.
+
+Over SSH, clone the public API repository into `~/porsca-api` and select `staging`:
+
+```bash
+ssh <account>@ssh-<account>.alwaysdata.net
+git clone https://github.com/niks0501/PorSca_POS_API.git ~/porsca-api
+cd ~/porsca-api
+git checkout staging
+composer install --no-dev --optimize-autoloader
+cp .env.example .env
+chmod 600 .env
+php artisan key:generate
+chmod -R u+rwX storage bootstrap/cache
+```
+
+Configure these values privately on the host. Obtain database names, user, and
+password from the panel; generate a strong admin password privately. Obtain
+PayMongo **test** credentials and webhook signing material from the operator,
+following [the local webhook contract](ARCHITECTURE.md#paymongo-webhook).
+Never copy database or payment secrets to Actions, mobile code, or source.
 
 ```dotenv
 APP_ENV=staging
 APP_DEBUG=false
+APP_URL=https://<account>.alwaysdata.net
 DB_CONNECTION=staging
 STAGING_DB_CONNECTION=mysql
-STAGING_DB_DATABASE=porsca_staging
-STAGING_DB_HOST=127.0.0.1
+STAGING_DB_HOST=mysql-<account>.alwaysdata.net
 STAGING_DB_PORT=3306
-STAGING_DB_USERNAME=porsca_staging
-STAGING_DB_PASSWORD=<strong-staging-password>
+STAGING_DB_DATABASE=<account>_porsca_staging
+STAGING_DB_USERNAME=<panel-database-user>
+STAGING_DB_PASSWORD=<private-database-password>
 ADMIN_NAME=<store-admin-name>
 ADMIN_EMAIL=<store-admin-email>
-ADMIN_PASSWORD=<strong-admin-password>
-# Sanctum token lifetime in minutes; 43200 is 30 days.
+ADMIN_PASSWORD=<private-strong-admin-password>
 SANCTUM_EXPIRATION=43200
 PAYMONGO_MODE=sandbox
-PAYMONGO_SECRET_KEY=<PayMongo-test-secret>
-PAYMONGO_WEBHOOK_SECRET=<server-webhook-secret>
+PAYMONGO_SECRET_KEY=<operator-test-secret>
+PAYMONGO_WEBHOOK_SECRET=<operator-signing-secret>
 ```
 
-Generate private values on the staging machine. Generate a strong `ADMIN_PASSWORD` with PowerShell's built-in cryptographic generator:
+Keep storage within the Free plan quota (code, logs and database share disk space),
+and maintain the account according to the provider's inactivity policy. No
+long-running Laravel development server or queue service is required.
 
-```powershell
-$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$password
-```
+### SSH deployment automation
 
-Bash:
+`.github/workflows/deploy-staging.yml` deploys every push to `staging`, with
+serialized runs and no cancellation of an active deployment. Manual dispatch
+must select `staging`; other refs skip deployment. Approval-only merges remain
+unchanged. Configure exactly three Actions secrets:
+
+- `STAGING_HOST`: `ssh-<account>.alwaysdata.net`
+- `STAGING_USER`: `<account>`
+- `STAGING_SSH_KEY`: dedicated SSH private key authorized for that account
+
+The key is loaded via stdin into a short-lived SSH agent, not written to disk.
+Host keys are obtained with `ssh-keyscan` through a pipe: this is trust-on-first-use,
+not an independently pinned host identity. Verify the host fingerprint through
+the provider during setup; network interception of key discovery remains a
+bootstrap limitation of this three-secret configuration.
+
+The host checkout must already exist at `~/porsca-api`, with its private `.env`,
+application key, database grants, working Composer/PHP CLI, and HTTPS site.
+The workflow fetches `staging`, rejects stale queued SHAs rather than rolling
+back a newer staging tip, resets tracked code to the event SHA, installs
+production dependencies, clears old configuration, and migrates with `--force`.
+It records `APP_COMMIT` in the host's `.env` **before** `config:cache` so the HTTP
+health payload reports that revision. It then requests the HTTPS health URL from
+host-owned `APP_URL`, requiring successful HTTP, `data.status=ok` and the exact
+`data.commit`. A stale run can be superseded by the next push or dispatched again
+on the latest `staging` revision.
+
+Deployment never resets or seeds QA data. Migrations can alter schema; coordinate
+checkout writer pauses as required below. Deployment failure is not a rollback:
+inspect the failed step privately, correct the cause and rerun for the current
+staging SHA. Do not delete financial records to recover.
+
+The host is not provisioned yet. YAML/local tests do not prove live deployment;
+the first approved merge after operator setup must prove the full job and SHA
+health check. The separate mobile staging-state job supplies paired-SHA evidence;
+an API deploy alone is not a paired release or formal QA approval.
+
+### Baseline and health checks
+
+After environment changes, run over SSH from `~/porsca-api`:
 
 ```bash
-openssl rand -hex 32
-```
-
-For `STAGING_DB_PASSWORD`, PowerShell:
-
-```powershell
-$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$password
-```
-
-Bash:
-
-```bash
-openssl rand -base64 32
-```
-
-Use the generated password in both MySQL account creation and `STAGING_DB_PASSWORD`. Obtain PayMongo test credentials from the PayMongo dashboard; do not invent or reuse credentials. `.env` and all generated secrets must remain private.
-
-Create the database and dedicated user if they do not already exist. Connect as a MySQL administrator in either PowerShell or Bash:
-
-```text
-mysql -u root -p
-```
-
-Then, at the MySQL prompt, substitute the same generated password in the SQL statement:
-
-```sql
-CREATE DATABASE IF NOT EXISTS porsca_staging CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'porsca_staging'@'localhost' IDENTIFIED BY '<strong-staging-password>';
-GRANT ALL PRIVILEGES ON porsca_staging.* TO 'porsca_staging'@'localhost';
-```
-
-Success: MySQL creates the database and user and grants access without an error. If MySQL reports that either already exists, keep the existing account and make sure its password and grants match the environment values.
-
-Only after the human release owner has created a new QA cycle, reset the isolated database once at its start. Both shells:
-
-```text
-php artisan qa:reset --force
-```
-
-Success: the command ends with `Staging reset to qa-baseline-2026-10.` and seeds four products. It runs a fresh migration and seed on the `staging` connection; if either operation fails, the command exits unsuccessfully and does not report a successful reset. This is destructive, so run it only before a cycle starts. After the cycle starts, preserve the database. Do not reset, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
-
-After changing the environment file, clear cached configuration and start the API (both shells):
-
-```text
 php artisan config:clear
-php artisan serve --host=0.0.0.0 --port=8000
-```
-
-Success: the first command says the configuration cache was cleared; the server starts listening on port 8000. Keep the server running in this terminal. Verify the database has the expected tables (both shells):
-
-```text
+php artisan migrate --force
+php artisan config:cache
 php artisan db:show --database=staging
 ```
 
-Success: output identifies `porsca_staging` and lists tables including `migrations` and the application's product and sales tables.
+The database output must identify the panel's isolated staging database and
+application tables. SQLite is only an isolated local-test fallback, never the
+permanent staging database.
 
-Check API health in PowerShell:
-
-```powershell
-Invoke-RestMethod -Uri 'https://<stable-api-host>/api/v1/health'
-```
-
-In Bash:
+Only after a human release owner creates a new cycle, reset once at its start:
 
 ```bash
-curl https://<stable-api-host>/api/v1/health
+php artisan qa:reset --force
 ```
 
-Success: HTTP 200 and JSON with `environment: staging`, `database: ok`, and `status: ok`.
+Success ends with `Staging reset to qa-baseline-2026-10.` and seeds four products.
+This command runs fresh migrations and seeds on the staging connection and is
+destructive. Once a cycle starts, preserve the database: do not reset, reseed or
+edit rows by hand. A new baseline requires a new cycle ID and reset.
 
-SQLite is a fallback for isolated local checks only: configure `STAGING_DB_CONNECTION=sqlite` and `STAGING_DB_DATABASE` as an absolute path to a separate SQLite file. Do not use SQLite as the staging server database.
+From outside the host:
 
-## Local machine and Tailscale Funnel
-
-A local staging server is reachable only while the computer is on and the process is running. A home or office network can also block inbound traffic. A Tailscale Funnel URL must be enabled on the same machine that runs the API. With the API listening on port 8000, run in either PowerShell or Bash:
-
-```text
-tailscale funnel 8000
+```bash
+curl --fail https://<account>.alwaysdata.net/api/v1/health
 ```
-
-Success looks like Tailscale printing an HTTPS URL. Check that URL before giving it to testers.
 
 PowerShell:
 
 ```powershell
-Invoke-RestMethod -Uri 'https://<tailscale-funnel-host>/api/v1/health'
+Invoke-RestMethod -Uri 'https://<account>.alwaysdata.net/api/v1/health'
 ```
 
-Bash:
-
-```bash
-curl https://<tailscale-funnel-host>/api/v1/health
-```
-
-The Funnel URL must be stable for the complete QA cycle. Do not use a temporary tunnel URL. Do not promise uptime from a developer laptop. Keep the laptop awake, keep the API process running, and record the exact stable URL in the cycle record. If the URL changes, stop the cycle and create a new environment record.
-
-The mobile build must use the full URL ending in `/api/v1`. A phone must not use `localhost`.
+Require HTTP 200 and `data.environment=staging`, `data.database=ok`,
+`data.paymongo_mode=sandbox`, `data.status=ok`, and `data.commit` equal to the
+deployed full API SHA. Before the first automated deployment, `commit` defaults
+to `unknown`; that is not paired-SHA evidence. The mobile origin includes
+`/api/v1` and never uses `localhost`.
 
 ## Checkout v3 promotion boundary
 
@@ -170,3 +179,40 @@ Deploy the additive checkout migration with payment/checkout writers paused, the
 ## Release handoff
 
 The staging record must name the exact API commit, the exact mobile commit, the baseline version, the database environment, the stable URL, and the PayMongo sandbox context. Follow [QA-CYCLE.md](QA-CYCLE.md). Human QA owns the final approval.
+
+## Appendix: Tailscale Funnel break-glass only
+
+A local API and isolated local staging database may be used for operator checks,
+Newman, or internal dev-client builds when the permanent host is unavailable.
+This is not the permanent tester origin: the preview app bakes its URL and cannot
+silently switch to Funnel. Never substitute the developer database or copy live
+financial data. Keep private local settings outside git.
+
+Start the API on that machine and keep it awake:
+
+```text
+php artisan config:clear
+php artisan serve --host=0.0.0.0 --port=8000
+```
+
+In another terminal (PowerShell or Bash):
+
+```text
+tailscale funnel 8000
+```
+
+Check the printed HTTPS URL before use:
+
+```bash
+curl --fail https://<tailscale-funnel-host>/api/v1/health
+```
+
+```powershell
+Invoke-RestMethod -Uri 'https://<tailscale-funnel-host>/api/v1/health'
+```
+
+Require the same healthy sandbox/staging fields. Keep the API process and laptop
+running; do not promise uptime from a laptop. Record the exact URL for any approved
+break-glass cycle. If the origin, SHA, baseline or sandbox context changes, stop
+the cycle and create a new environment/cycle record. An internal client must use
+the full Funnel URL ending in `/api/v1`; preview rebuilds remain manual.

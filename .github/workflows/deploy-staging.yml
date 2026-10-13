@@ -1,0 +1,61 @@
+name: Deploy staging
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy merged revision over SSH
+        shell: bash
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          eval "$(ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null' EXIT
+          printf '%s\n' "$STAGING_SSH_KEY" | ssh-add - >/dev/null 2>&1
+          unset STAGING_SSH_KEY
+          # Public host keys stay in a pipe, not a persisted credentials file.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=<(ssh-keyscan -H "$STAGING_HOST" 2>/dev/null) \
+            "$STAGING_USER@$STAGING_HOST" bash -s -- "$DEPLOY_SHA" <<'DEPLOY'
+          set -euo pipefail
+          cd "$HOME/porsca-api"
+          git fetch origin staging --quiet
+          # Do not roll back staging when a queued/manual run has become stale.
+          test "$(git rev-parse FETCH_HEAD)" = "$1"
+          git reset --hard "$1" >/dev/null
+          composer install --no-dev --optimize-autoloader --no-interaction --no-progress
+          php artisan config:clear
+          php artisan migrate --force
+          # Record before caching so HTTP workers see the deployed SHA.
+          php -r '$p=".env"; $s=file_get_contents($p); $s=preg_replace("/^APP_COMMIT=.*\\R?/m", "", $s); file_put_contents($p, rtrim($s)."\nAPP_COMMIT=".$argv[1]."\n");' "$1"
+          php artisan config:cache
+          # APP_URL is host-owned configuration; no further Actions secrets needed.
+          php -r '
+          require "vendor/autoload.php";
+          $app = require "bootstrap/app.php";
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+          $url = rtrim(config("app.url"), "/")."/api/v1/health";
+          if (parse_url($url, PHP_URL_SCHEME) !== "https") { exit(1); }
+          $response = Illuminate\Support\Facades\Http::timeout(30)->get($url);
+          if (!$response->successful() || $response->json("data.status") !== "ok"
+              || $response->json("data.commit") !== $argv[1]) { exit(1); }
+          ' "$1"
+          DEPLOY

@@ -38,7 +38,18 @@ class ApiContractTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.service', 'porsca-api')
-            ->assertJsonPath('data.version', 'v1');
+            ->assertJsonPath('data.version', 'v1')
+            ->assertJsonPath('data.commit', 'unknown');
+    }
+
+    public function test_health_reports_the_configured_deployed_commit(): void
+    {
+        $commit = str_repeat('a', 40);
+        config(['app.commit' => $commit]);
+
+        $this->getJson('/api/v1/health')->assertOk()
+            ->assertJsonPath('data.status', 'ok')
+            ->assertJsonPath('data.commit', $commit);
     }
 
     public function test_protected_resources_require_a_bearer_token(): void
