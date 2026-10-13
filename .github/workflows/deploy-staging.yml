@@ -1,8 +1,6 @@
 name: Deploy staging
 
 on:
-  push:
-    branches: [staging]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Deploy merged revision over SSH
+      - name: Deploy manually selected revision over SSH
         shell: bash
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}

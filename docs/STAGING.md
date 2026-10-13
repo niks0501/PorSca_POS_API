@@ -46,7 +46,7 @@ Add the daily Laravel scheduler cron (`php artisan schedule:run`) and retain bac
 
 ### Deploy
 
-The workflow `.github/workflows/deploy-staging.yml` deploys pushes to `staging` (and manual dispatch on that ref), serializes runs, rejects stale SHAs, resets to the event commit, restores `www-data` group write access on the existing writable paths, installs production dependencies, clears config, migrates, writes `APP_COMMIT`, caches config, and calls the HTTPS health endpoint. It requires HTTP success, `data.status=ok`, and the exact deployed `data.commit`.
+The workflow `.github/workflows/deploy-staging.yml` deploys only on manual dispatch for the `staging` ref; pushes do not deploy. It serializes runs, rejects stale SHAs, resets to the dispatched commit, restores `www-data` group write access on the existing writable paths, installs production dependencies, clears config, migrates, writes `APP_COMMIT`, caches config, and calls the HTTPS health endpoint. It requires HTTP success, `data.status=ok`, and the exact deployed `data.commit`.
 
 Configure exactly these three GitHub Actions secrets: `STAGING_HOST`, `STAGING_USER`, and `STAGING_SSH_KEY`. Use port 22. No database, PayMongo, admin, or AWS credentials belong in Actions. The key is loaded through a short-lived SSH agent. Host keys are discovered with `ssh-keyscan` (trust-on-first-use); independently verify the fingerprint with the operator during setup. The host checkout, private `.env`, app key, database grants, Composer/PHP, and HTTPS must be ready before dispatch.
 
