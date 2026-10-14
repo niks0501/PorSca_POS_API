@@ -58,6 +58,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Deployed Commit
+    |--------------------------------------------------------------------------
+    |
+    | Full SHA of the revision currently deployed, recorded by the staging
+    | deployment workflow before the configuration cache is built.
+    |
+    */
+
+    'commit' => env('APP_COMMIT'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
