@@ -26,15 +26,22 @@ jobs:
         run: |
           set -euo pipefail
           eval "$(ssh-agent -s)" >/dev/null
-          trap 'ssh-agent -k >/dev/null' EXIT
+          KNOWN_HOSTS="$(mktemp)"
+          trap 'rm -f "$KNOWN_HOSTS"; ssh-agent -k >/dev/null' EXIT
           if ! printf '%s\n' "$STAGING_SSH_KEY" | ssh-add - >/dev/null 2>&1; then
             echo "ssh-add could not load STAGING_SSH_KEY (not a valid unencrypted private key?)" >&2
             exit 1
           fi
           unset STAGING_SSH_KEY
-          # Public host keys stay in a pipe, not a persisted credentials file.
+          # Fetch public host keys into a temp file first: the previous
+          # process substitution raced a still-running ssh-keyscan and ssh
+          # read an incomplete known-hosts, failing host verification.
+          if ! timeout 30 ssh-keyscan -H "$STAGING_HOST" >"$KNOWN_HOSTS" 2>/dev/null || ! test -s "$KNOWN_HOSTS"; then
+            echo "ssh-keyscan obtained no host keys for STAGING_HOST" >&2
+            exit 1
+          fi
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile=<(ssh-keyscan -H "$STAGING_HOST" 2>/dev/null) \
+            -o UserKnownHostsFile="$KNOWN_HOSTS" \
             "$STAGING_USER@$STAGING_HOST" bash -s -- "$DEPLOY_SHA" <<'DEPLOY'
           set -euo pipefail
           cd "$HOME/porsca-api"
