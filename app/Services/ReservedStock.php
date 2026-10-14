@@ -5,11 +5,24 @@ namespace App\Services;
 use App\Exceptions\InsufficientStock;
 use App\Models\Inventory;
 use App\Models\Payment;
+use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 
-/** Call within a transaction, after locking inventory rows in ascending product order. */
+/**
+ * Call within a transaction, after locking inventory rows in ascending product order.
+ * Reservation sums require current (locking) reads: inventory locks do not refresh
+ * an earlier MySQL REPEATABLE READ snapshot.
+ */
 class ReservedStock
 {
+    public function lockSettlementResources(array $productIds): void
+    {
+        sort($productIds);
+        $productIds = array_values(array_unique($productIds));
+        Product::query()->whereIn('id', $productIds)->orderBy('id')->lockForUpdate()->get();
+        Inventory::query()->whereIn('product_id', $productIds)->orderBy('product_id')->lockForUpdate()->get();
+    }
+
     public function lockAndCheck(int $productId, int $quantity, string $name, ?int $ownPaymentId = null): Inventory
     {
         $inventory = Inventory::query()->where('product_id', $productId)->lockForUpdate()->first();
@@ -19,6 +32,7 @@ class ReservedStock
             ->where('payments.status', Payment::PENDING)
             ->where('payments.reservation_expires_at', '>', now())
             ->when($ownPaymentId !== null, fn ($query) => $query->where('payments.id', '!=', $ownPaymentId))
+            ->lockForUpdate()
             ->sum('payment_items.quantity');
         if ($inventory === null || $inventory->quantity < $quantity || $reserved > $inventory->quantity - $quantity) {
             throw new InsufficientStock($name);
@@ -34,6 +48,7 @@ class ReservedStock
             ->where('payment_items.product_id', $productId)
             ->where('payments.status', Payment::PENDING)
             ->where('payments.reservation_expires_at', '>', now())
+            ->lockForUpdate()
             ->sum('payment_items.quantity');
         if ($newQuantity < $reserved) {
             throw new InsufficientStock($name);

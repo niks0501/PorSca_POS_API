@@ -89,6 +89,52 @@ class AuthTest extends TestCase
         ])->assertStatus(429);
     }
 
+    public function test_login_rate_limit_is_shared_across_email_casing(): void
+    {
+        User::factory()->create([
+            'email' => 'admin@example.test',
+            'password' => 'secret-password',
+        ]);
+
+        foreach ([
+            'admin@example.test',
+            'Admin@example.test',
+            'ADMIN@example.test',
+            'admin@Example.test',
+            'admin@example.TEST',
+        ] as $email) {
+            $this->postJson('/api/v1/auth/login', [
+                'email' => $email,
+                'password' => 'wrong-password',
+            ])->assertUnauthorized();
+        }
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'AdMiN@EXAMPLE.TEST',
+            'password' => 'wrong-password',
+        ])->assertStatus(429);
+
+        // Other accounts and other IPs retain their own attempt budgets.
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'other@example.test',
+            'password' => 'wrong-password',
+        ])->assertUnauthorized();
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])
+            ->postJson('/api/v1/auth/login', [
+                'email' => 'admin@example.test',
+                'password' => 'wrong-password',
+            ])->assertUnauthorized();
+
+        $this->travel(61)->seconds();
+
+        $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+            ->postJson('/api/v1/auth/login', [
+                'email' => 'admin@example.test',
+                'password' => 'secret-password',
+            ])->assertOk();
+    }
+
     public function test_me_requires_a_token_and_returns_the_signed_in_user(): void
     {
         $user = User::factory()->create();

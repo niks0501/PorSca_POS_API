@@ -154,6 +154,71 @@ class ProductManagementTest extends TestCase
         $this->assertSame(8, $product->inventory()->value('quantity'));
     }
 
+    public function test_custom_category_and_leading_zero_barcode_round_trip(): void
+    {
+        $this->postJson('/api/v1/products', [
+            'name' => 'Frozen Dumplings',
+            'barcode' => '0012345678905',
+            'category' => 'Frozen Food',
+            'price' => 1299,
+            'stock' => 3,
+        ], $this->headers())->assertCreated()
+            ->assertJsonPath('data.barcode', '0012345678905')
+            ->assertJsonPath('data.category', 'Frozen Food');
+
+        $this->getJson('/api/v1/products/barcode/0012345678905', $this->headers())
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Frozen Dumplings')
+            ->assertJsonPath('data.price', 1299)
+            ->assertJsonPath('data.stock.quantity', 3);
+    }
+
+    public function test_partial_product_edit_preserves_stock_and_barcode(): void
+    {
+        $product = Product::factory()->create(['barcode' => '0012345678905', 'price' => 100]);
+        $product->inventory()->create(['quantity' => 7]);
+
+        $this->patchJson('/api/v1/products/'.$product->id, [
+            'name' => 'Updated Product', 'price' => 199, 'category' => 'Baked Goods',
+        ], $this->headers())->assertOk()
+            ->assertJsonPath('data.name', 'Updated Product')
+            ->assertJsonPath('data.category', 'Baked Goods')
+            ->assertJsonPath('data.price', 199)
+            ->assertJsonPath('data.barcode', '0012345678905')
+            ->assertJsonPath('data.stock.quantity', 7);
+    }
+
+    public function test_duplicate_barcode_edit_rejects_all_changes(): void
+    {
+        Product::factory()->create(['barcode' => '4800000055555']);
+        $product = Product::factory()->create(['barcode' => '4800000066666', 'name' => 'Original', 'price' => 100]);
+        $product->inventory()->create(['quantity' => 7]);
+
+        $this->patchJson('/api/v1/products/'.$product->id, [
+            'barcode' => '4800000055555', 'name' => 'Changed', 'price' => 999, 'stock' => 99,
+        ], $this->headers())->assertStatus(422)
+            ->assertJsonStructure(['error' => ['details' => ['barcode']]]);
+
+        $this->assertSame('Original', $product->fresh()->name);
+        $this->assertSame('4800000066666', $product->fresh()->barcode);
+        $this->assertSame(100, $product->fresh()->price);
+        $this->assertSame(7, $product->inventory()->value('quantity'));
+    }
+
+    public function test_invalid_category_rejects_other_product_changes(): void
+    {
+        $product = Product::factory()->create(['name' => 'Original', 'price' => 100]);
+        $product->inventory()->create(['quantity' => 7]);
+
+        $this->patchJson('/api/v1/products/'.$product->id, [
+            'category' => str_repeat('x', 101), 'name' => 'Changed', 'stock' => 99,
+        ], $this->headers())->assertStatus(422)
+            ->assertJsonStructure(['error' => ['details' => ['category']]]);
+
+        $this->assertSame('Original', $product->fresh()->name);
+        $this->assertSame(7, $product->inventory()->value('quantity'));
+    }
+
     /** @return array<string, string> */
     private function headers(): array
     {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CheckoutAuthorityController;
 use App\Http\Controllers\Api\V1\CheckoutController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InventoryController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\Api\V1\SaleController;
 use App\Http\Controllers\Api\V1\TransactionController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\WebhookController;
+use App\Http\Middleware\EnsureCheckoutContract;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -69,5 +71,28 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('users/{user}', [UserController::class, 'update'])->name('api.v1.users.update');
             Route::post('users/{user}/deactivate', [UserController::class, 'deactivate'])->name('api.v1.users.deactivate');
         });
+    });
+});
+
+// v3 is an additive contract surface; the deployed URL base remains /api/v1.
+Route::prefix('v1')->middleware(['auth:sanctum', 'active', 'role:admin,cashier', EnsureCheckoutContract::class])->group(function (): void {
+    Route::get('checkout-session', [CheckoutAuthorityController::class, 'session']);
+    Route::get('checkouts', [CheckoutAuthorityController::class, 'index']);
+    Route::post('checkouts', [CheckoutAuthorityController::class, 'store']);
+    Route::get('checkouts/{checkout}', [CheckoutAuthorityController::class, 'show']);
+    Route::post('checkouts/{checkout}/recover', [CheckoutAuthorityController::class, 'recover']);
+    Route::post('checkouts/{checkout}/revalidate', [CheckoutAuthorityController::class, 'revalidate']);
+    Route::post('checkouts/{checkout}/abandon', [CheckoutAuthorityController::class, 'abandon']);
+    Route::post('checkouts/{checkout}/cash', [CheckoutAuthorityController::class, 'cash']);
+    Route::get('checkouts/{checkout}/attempts', [CheckoutAuthorityController::class, 'attempts']);
+    Route::post('checkouts/{checkout}/attempts', [CheckoutAuthorityController::class, 'attempt']);
+    Route::get('checkouts/{checkout}/attempts/{attempt}', [CheckoutAuthorityController::class, 'attemptShow']);
+    Route::get('checkouts/{checkout}/attempts/{attempt}/reservation', [CheckoutAuthorityController::class, 'reservation']);
+    Route::post('checkouts/{checkout}/attempts/{attempt}/refresh', [CheckoutAuthorityController::class, 'refresh']);
+    Route::middleware('role:admin')->group(function (): void {
+        Route::post('checkouts/{checkout}/attempts/{attempt}/simulation-capability', [CheckoutAuthorityController::class, 'simulation']);
+        Route::get('reconciliation-cases', [CheckoutAuthorityController::class, 'cases']);
+        Route::get('reconciliation-cases/{case}', [CheckoutAuthorityController::class, 'caseShow']);
+        Route::patch('reconciliation-cases/{case}', [CheckoutAuthorityController::class, 'caseUpdate']);
     });
 });

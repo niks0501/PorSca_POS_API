@@ -15,23 +15,37 @@ class PaymentSettlementService
 
     public function settle(Payment|int $payment, string $status, ?string $providerEventId = null, array $metadata = []): Payment
     {
+        $linked = $payment instanceof Payment ? $payment : Payment::findOrFail($payment);
+        if ($linked->checkout_id !== null) {
+            // A status string alone can never authorize the v3 checkout authority.
+            return app(CheckoutOutcomes::class)->observe($linked, $metadata['inspection'] ?? ['verified' => false], $providerEventId);
+        }
         $status = strtolower($status);
         if (! in_array($status, [Payment::PENDING, ...Payment::terminalStatuses()], true)) {
             throw new ApiException('Unsupported payment status.', 422, ['status' => ['Unsupported payment status.']]);
         }
 
-        return DB::transaction(function () use ($payment, $status, $providerEventId, $metadata): Payment {
-            $paymentModel = Payment::query()->whereKey($payment instanceof Payment ? $payment->getKey() : $payment)->lockForUpdate()->firstOrFail();
+        // Lock products and inventory before payment rows, matching stock edits and reservation reads.
+        // Retry the whole unit; a webhook caller must also retry its outer transaction.
+        $paymentId = $payment instanceof Payment ? $payment->getKey() : $payment;
+
+        return DB::transaction(function () use ($paymentId, $status, $providerEventId, $metadata): Payment {
+            if ($status === Payment::PAID) {
+                $productIds = Payment::query()->whereKey($paymentId)->firstOrFail()
+                    ->items()->orderBy('product_id')->pluck('product_id')->all();
+                $this->stock->lockSettlementResources($productIds);
+            }
+            $paymentModel = Payment::query()->whereKey($paymentId)->lockForUpdate()->firstOrFail();
 
             if ($providerEventId !== null && Transaction::where('provider_event_id', $providerEventId)->exists()) {
-                return $paymentModel->fresh()->load('items.product', 'sale');
+                return $this->loadCurrentPaymentRelations($paymentModel);
             }
 
             // A terminal result is never downgraded or reprocessed. This is the
             // primary guard against duplicate webhook/payment delivery.
             if (in_array($paymentModel->status, [Payment::PAID, Payment::PAID_UNFULFILLED], true)
                 || (in_array($paymentModel->status, Payment::terminalStatuses(), true) && $status !== Payment::PAID)) {
-                return $paymentModel->fresh()->load('items.product', 'sale');
+                return $this->loadCurrentPaymentRelations($paymentModel);
             }
 
             if ($status === Payment::PENDING) {
@@ -73,6 +87,7 @@ class PaymentSettlementService
             }
 
             $sale = Sale::create([
+                'key_namespace' => Sale::SETTLEMENT_NAMESPACE,
                 'idempotency_key' => 'payment:'.$paymentModel->id,
                 'total_amount' => $paymentModel->amount,
                 'currency' => $paymentModel->currency,
@@ -99,7 +114,17 @@ class PaymentSettlementService
             $this->recordTransaction($paymentModel, 'payment_succeeded', Payment::PAID, $providerEventId, $metadata, $sale);
 
             return $paymentModel->fresh()->load('items.product', 'sale.items.product');
-        });
+        }, 3);
+    }
+
+    private function loadCurrentPaymentRelations(Payment $payment): Payment
+    {
+        $payment->load('items.product');
+        $sale = $payment->sale_id === null
+            ? null
+            : Sale::query()->whereKey($payment->sale_id)->lockForUpdate()->first()?->load('items.product');
+
+        return $payment->setRelation('sale', $sale);
     }
 
     private function recordTransaction(

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class UserManagementTest extends TestCase
@@ -125,6 +126,88 @@ class UserManagementTest extends TestCase
             'email' => 'cashier@example.test',
             'password' => 'cashier-password',
         ])->assertStatus(401);
+    }
+
+    /**
+     * @return array<string, array{bool|int|string}>
+     */
+    public static function inactiveValues(): array
+    {
+        return [
+            'boolean false' => [false],
+            'integer zero' => [0],
+            'string zero' => ['0'],
+        ];
+    }
+
+    #[DataProvider('inactiveValues')]
+    public function test_patching_a_cashier_inactive_permanently_revokes_all_tokens(bool|int|string $inactive): void
+    {
+        $adminToken = $this->tokenFor(User::factory()->create());
+        $cashier = User::factory()->cashier()->create();
+        $cashierTokens = [$this->tokenFor($cashier), $this->tokenFor($cashier)];
+
+        $this->withToken($cashierTokens[0]);
+        $this->getJson('/api/v1/auth/me')->assertOk();
+
+        $this->withToken($adminToken);
+        $this->patchJson('/api/v1/users/'.$cashier->id, ['is_active' => $inactive])
+            ->assertOk()->assertJsonPath('data.user.is_active', false);
+
+        $this->assertFalse($cashier->fresh()->is_active);
+        $this->assertSame(0, $cashier->tokens()->count());
+
+        foreach ($cashierTokens as $token) {
+            $this->withToken($token);
+            $this->getJson('/api/v1/auth/me')->assertUnauthorized();
+        }
+
+        $this->withToken($adminToken);
+        $this->patchJson('/api/v1/users/'.$cashier->id, ['is_active' => true])
+            ->assertOk()->assertJsonPath('data.user.is_active', true);
+
+        foreach ($cashierTokens as $token) {
+            $this->withToken($token);
+            $this->getJson('/api/v1/auth/me')->assertUnauthorized();
+        }
+
+        $this->withToken($this->tokenFor($cashier->fresh()));
+        $this->getJson('/api/v1/auth/me')->assertOk();
+    }
+
+    public function test_reactivating_an_inactive_cashier_revokes_tokens_left_by_an_older_bug(): void
+    {
+        $admin = User::factory()->create();
+        $cashier = User::factory()->cashier()->inactive()->create();
+        $cashierToken = $this->tokenFor($cashier);
+
+        $this->withToken($cashierToken);
+        $this->getJson('/api/v1/auth/me')->assertUnauthorized();
+
+        $this->withToken($this->tokenFor($admin));
+        $this->patchJson('/api/v1/users/'.$cashier->id, ['is_active' => true])
+            ->assertOk()->assertJsonPath('data.user.is_active', true);
+
+        $this->assertSame(0, $cashier->tokens()->count());
+        $this->withToken($cashierToken);
+        $this->getJson('/api/v1/auth/me')->assertUnauthorized();
+
+        $this->withToken($this->tokenFor($cashier->fresh()));
+        $this->getJson('/api/v1/auth/me')->assertOk();
+    }
+
+    public function test_patching_an_active_cashier_does_not_revoke_tokens(): void
+    {
+        $cashier = User::factory()->cashier()->create();
+        $cashierToken = $this->tokenFor($cashier);
+        $this->withToken($this->tokenFor(User::factory()->create()));
+
+        $this->patchJson('/api/v1/users/'.$cashier->id, ['name' => 'Updated Cashier'])->assertOk();
+        $this->patchJson('/api/v1/users/'.$cashier->id, ['is_active' => 1])
+            ->assertOk()->assertJsonPath('data.user.is_active', true);
+
+        $this->withToken($cashierToken);
+        $this->getJson('/api/v1/auth/me')->assertOk();
     }
 
     public function test_a_cashier_cannot_manage_users(): void

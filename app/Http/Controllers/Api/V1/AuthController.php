@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class AuthController extends ApiController
@@ -25,25 +26,30 @@ class AuthController extends ApiController
             'device_name' => ['sometimes', 'string', 'max:255'],
         ]);
 
-        $user = User::query()->where('email', $credentials['email'])->first();
+        return DB::transaction(function () use ($credentials): JsonResponse {
+            $user = User::query()
+                ->where('email', $credentials['email'])
+                ->lockForUpdate()
+                ->first();
 
-        $passwordMatches = Hash::check(
-            $credentials['password'],
-            $user?->password ?? self::DUMMY_HASH,
-        );
+            $passwordMatches = Hash::check(
+                $credentials['password'],
+                $user?->password ?? self::DUMMY_HASH,
+            );
 
-        if ($user === null || ! $passwordMatches || ! $user->is_active) {
-            return $this->error('unauthorized', 'The provided credentials are incorrect.', 401);
-        }
+            if ($user === null || ! $passwordMatches || ! $user->is_active) {
+                return $this->error('unauthorized', 'The provided credentials are incorrect.', 401);
+            }
 
-        $deviceName = $credentials['device_name'] ?? 'mobile';
-        $token = $user->createToken($deviceName, ['*']);
+            $deviceName = $credentials['device_name'] ?? 'mobile';
+            $token = $user->createToken($deviceName, ['*']);
 
-        return $this->data([
-            'token' => $token->plainTextToken,
-            'token_type' => 'Bearer',
-            'user' => $this->userArray($user),
-        ]);
+            return $this->data([
+                'token' => $token->plainTextToken,
+                'token_type' => 'Bearer',
+                'user' => $this->userArray($user),
+            ]);
+        });
     }
 
     public function logout(Request $request): Response

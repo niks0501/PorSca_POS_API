@@ -41,7 +41,7 @@ Record full SHAs, not branch names alone. Record the seed version printed by `qa
 7. Do not reset, reseed, or patch the database during the cycle.
 8. A human reviews the result and records approval or rejection.
 
-A reset is allowed only to begin a new cycle. A changed Funnel URL, API commit, mobile commit, seed, or PayMongo context starts a new cycle record.
+A reset is allowed only to begin a new cycle. A changed stable origin, API commit, mobile commit, seed, or PayMongo context starts a new cycle record.
 
 ## Defects
 

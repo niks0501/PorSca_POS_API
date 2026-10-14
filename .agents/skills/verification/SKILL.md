@@ -46,6 +46,10 @@ Never blindly rerun a failed flow or use retries to compensate for missing diagn
 Biometrics, gallery pickers, permissions, and comparable native blockers are manual/native verification required conditions, not retry loops.
 Record the blocker and finish the lower test levels instead of repeatedly fighting native dialogs.
 
+## Staging server-error diagnosis
+
+Before concluding that a staging `500` blocks verification, inspect the redacted response details and read the `Error shape` section in `docs/ARCHITECTURE.md` plus `docs/STAGING.md`. Report the endpoint, status, and missing evidence rather than guessing. Keep the existing money-flow and staging-data restrictions intact.
+
 ## Mobile verification
 
 For React Native and Expo, Jest/jest-expo plus React Native Testing Library is the ordinary completion path.

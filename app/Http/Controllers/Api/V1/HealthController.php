@@ -21,10 +21,11 @@ class HealthController extends ApiController
         return $this->data([
             'service' => 'porsca-api',
             'version' => 'v1',
+            'commit' => config('app.commit', 'unknown'),
             'environment' => app()->environment(),
             'database' => $database,
             'paymongo_mode' => config('services.paymongo.mode'),
-            'commit' => config('app.commit'),
+            'commit' => config('app.commit') ?? 'unknown',
             'status' => $healthy ? 'ok' : 'degraded',
         ], $healthy ? 200 : 503);
     }

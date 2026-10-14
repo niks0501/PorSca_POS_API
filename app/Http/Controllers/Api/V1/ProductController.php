@@ -99,6 +99,8 @@ class ProductController extends ApiController
     public function update(Request $request, string $productId): JsonResponse
     {
         $validated = $request->validate($this->updateRules($productId));
+        // Stock-floor reads may contend with payment-first settlement locks.
+        // Replay the complete product/inventory edit on a deadlock.
         $product = DB::transaction(function () use ($validated, $productId): ?Product {
             $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
             if ($product === null) {
@@ -133,7 +135,7 @@ class ProductController extends ApiController
             }
 
             return $product->fresh()->load('inventory');
-        });
+        }, 3);
 
         if ($product === null) {
             return $this->error('not_found', 'Product not found.', 404);
@@ -154,6 +156,7 @@ class ProductController extends ApiController
             'reorder_level' => ['sometimes', 'integer', 'min:0'],
         ])->validate();
 
+        // Retry the outer edit, not just its reservation read or inventory write.
         $product = DB::transaction(function () use ($validated, $productId): ?Product {
             $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
             if ($product === null) {
@@ -177,7 +180,7 @@ class ProductController extends ApiController
             }
 
             return $product->fresh()->load('inventory');
-        });
+        }, 3);
 
         if ($product === null) {
             return $this->error('not_found', 'Product not found.', 404);

@@ -1,166 +1,101 @@
 # Staging guide
 
-Staging is for formal QA. It is not a developer scratch database.
-
-Preparing a staging environment does not create or start a formal QA cycle. A human release owner creates the cycle record only after selecting a paired mobile/API candidate and deciding to begin formal testing.
+Staging is for formal QA, not a developer scratch database. Preparing the host does not start a formal QA cycle; a human release owner creates the cycle record after selecting paired mobile/API candidates.
 
 ## Branch and promotion rules
 
-1. Make a feature branch from `main`.
-2. Open a pull request from the feature branch to `staging`.
-3. Run the API checks on that pull request.
-4. If QA finds a defect, branch from `staging` and open a fix pull request back to `staging`.
-5. Do not patch `staging` directly.
-6. Promote the exact API commit and the paired mobile commit to `main` only after a human approves the formal QA cycle.
-7. Never merge a release by an agent.
+1. Make feature branches from `main` and open pull requests to `staging`.
+2. Fix QA defects from `staging`; never patch it directly.
+3. Promote the exact paired API and mobile commits to `main` only after human approval of formal QA. Agents never merge releases.
 
-`main` is stable. `staging` started at the same commit as `main` and should remain the QA integration branch.
+See [the billing-lock merge rule](STAGING.md#merging-while-the-check-runners-are-down-billing-lock): unavailable checks are not failed checks; merge to `staging` during runner outages only with green local `composer verify`, human diff review, and confirmation billing is the sole cause. `main` promotion still requires green checks or completed human-approved QA.
 
-## Merging while the check runners are down (billing lock)
+## AWS Lightsail staging runbook
 
-Checks that never started are not the same as checks that failed. Code that the runners actually failed must never be merged without a fix.
+The permanent API origin is `https://staging-api.<domain>`; clients use the `/api/v1` base. This is a literal placeholder until the operator selects and configures the existing domain. The instance is not live yet: configuration below is a plan, not proof of deployment. The first promotion merge into `staging` after operator setup must demonstrate a successful deploy and exact-commit health assertion. Do not configure DNS, secrets, or infrastructure from this guide alone.
 
-Merging into `staging` while the runners are down is allowed only when:
+### Bootstrap (operator)
 
-1. The PR body shows a green local run of the canonical `composer verify` command.
-2. A human reviewed the diff.
-3. The billing lock is confirmed as the only reason the checks sat out.
+Provision the decided Lightsail Small-2GB Ubuntu 24.04 instance in Singapore (`ap-southeast-1`), with static IPv4 and inbound 22/80/443 only. Use key-only SSH on port 22, disable password and root login, create the dedicated `deploy` user, and add 2 GB swap. Paid billing is the decided account plan; confirm credit eligibility/expiry and budget alert with the account owner.
 
-Promoting into `main` still waits for green checks or a completed human QA round with approval. Quotas reset monthly, so this is temporary. Narrowing check triggers is a separate later decision.
+Install Nginx, PHP 8.3-FPM and required extensions, Composer 2, git, and MySQL 8. Bind MySQL to loopback; create `porsca_staging` and a least-privilege database user. Configure Nginx/TLS for `staging-api.<domain>` (Certbot/Let's Encrypt) with the document root at `/home/deploy/porsca-api/public`; verify renewal. Configure PHP-FPM as `deploy:www-data`. Clone the API into `/home/deploy/porsca-api`, check out `staging`, and install production dependencies.
 
-## Isolated database
-
-Staging uses its own MySQL database, `porsca_staging`. Do not point it at the developer database. Set these values on the staging machine and keep real secrets there:
+Create the host-only `.env` (mode 0600), generate the Laravel key, migrate, and set ownership/permissions so the deploy user owns the checkout and PHP-FPM's `www-data` group can write `storage` and `bootstrap/cache`. The example is a template only; substitute values privately on the host. Never commit actual credentials or put database, PayMongo, or admin secrets in GitHub Actions or mobile configuration.
 
 ```dotenv
 APP_ENV=staging
 APP_DEBUG=false
+APP_URL=https://staging-api.<domain>
 DB_CONNECTION=staging
 STAGING_DB_CONNECTION=mysql
-STAGING_DB_DATABASE=porsca_staging
 STAGING_DB_HOST=127.0.0.1
 STAGING_DB_PORT=3306
-STAGING_DB_USERNAME=porsca_staging
-STAGING_DB_PASSWORD=<strong-staging-password>
+STAGING_DB_DATABASE=<staging-database-name>
+STAGING_DB_USERNAME=<staging-database-user>
+STAGING_DB_PASSWORD=<private-database-password>
 ADMIN_NAME=<store-admin-name>
 ADMIN_EMAIL=<store-admin-email>
-ADMIN_PASSWORD=<strong-admin-password>
-# Sanctum token lifetime in minutes; 43200 is 30 days.
+ADMIN_PASSWORD=<private-strong-admin-password>
 SANCTUM_EXPIRATION=43200
 PAYMONGO_MODE=sandbox
-PAYMONGO_SECRET_KEY=<PayMongo-test-secret>
-PAYMONGO_WEBHOOK_SECRET=<server-webhook-secret>
+PAYMONGO_SECRET_KEY=<operator-test-secret>
+PAYMONGO_WEBHOOK_SECRET=<operator-signing-secret>
 ```
 
-Generate private values on the staging machine. Generate a strong `ADMIN_PASSWORD` with PowerShell's built-in cryptographic generator:
+Add the daily Laravel scheduler cron (`php artisan schedule:run`) and retain backups/snapshots before migrations and schema changes. PayMongo remains sandbox-only; register its signed webhook at `https://staging-api.<domain>/api/v1/webhooks/paymongo` only after the operator configures the live host.
 
-```powershell
-$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$password
-```
+### Deploy
 
-Bash:
+The workflow `.github/workflows/deploy-staging.yml` deploys only on manual dispatch for the `staging` ref; pushes do not deploy. It serializes runs, rejects stale SHAs, resets to the dispatched commit, restores `www-data` group write access on the existing writable paths, installs production dependencies, clears config, migrates, writes `APP_COMMIT`, caches config, and calls the HTTPS health endpoint. It requires HTTP success, `data.status=ok`, and the exact deployed `data.commit`.
+
+Configure exactly these three GitHub Actions secrets: `STAGING_HOST`, `STAGING_USER`, and `STAGING_SSH_KEY`. Use port 22. No database, PayMongo, admin, or AWS credentials belong in Actions. The key is loaded through a short-lived SSH agent. Host keys are discovered with `ssh-keyscan` (trust-on-first-use); independently verify the fingerprint with the operator during setup. The host checkout, private `.env`, app key, database grants, Composer/PHP, and HTTPS must be ready before dispatch.
+
+Deployment does not reset or seed QA data. Migrations may change schema; coordinate checkout writer pauses as required. A failed run is not an automatic rollback; diagnose privately and retry only the current staging SHA. The first real live proof is the first promotion merge into `staging` after setup, with a green workflow and health fields `environment=staging`, `database=ok`, `paymongo_mode=sandbox`, `status=ok`, and exact `commit`. Until then, local/YAML checks are not live proof.
+
+### Verify
+
+On the host, inspect configuration and database without exposing credentials:
 
 ```bash
-openssl rand -hex 32
+cd ~/porsca-api
+php artisan config:clear
+php artisan migrate --force
+php artisan config:cache
+php artisan db:show --database=staging
 ```
 
-For `STAGING_DB_PASSWORD`, PowerShell:
-
-```powershell
-$password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-$password
-```
-
-Bash:
+Confirm the isolated staging database and application tables. SQLite is only a local-test fallback. From an external network:
 
 ```bash
-openssl rand -base64 32
+curl --fail https://staging-api.<domain>/api/v1/health
 ```
 
-Use the generated password in both MySQL account creation and `STAGING_DB_PASSWORD`. Obtain PayMongo test credentials from the PayMongo dashboard; do not invent or reuse credentials. `.env` and all generated secrets must remain private.
+Require HTTP 200 and the staging, healthy database, sandbox, healthy status, and deployed full SHA fields above. After a human release owner starts a new cycle, reset once at its start with `php artisan qa:reset --force`; it is destructive and never a recovery step. Preserve cycle data thereafter.
 
-Create the database and dedicated user if they do not already exist. Connect as a MySQL administrator in either PowerShell or Bash:
+### Rollback
 
-```text
-mysql -u root -p
-```
+Before risky schema changes, take a snapshot and database dump. For an application-only failure, inspect the failed deployment, then check out the known-good full commit and reinstall dependencies, clear/cache configuration, and verify health. Do not revert across migrations that have changed or consumed data without an explicit recovery plan. Migrations are forward-only; if schema rollback is unsafe, fix forward. Protect financial/audit history: never delete records, run `db:wipe`, or use `qa:reset` as rollback. Any v3 checkout data makes rollback to incompatible code a no-go; follow [the checkout contract](CHECKOUT-CONTRACT.md) and operator-owned archival/reconciliation plan.
 
-Then, at the MySQL prompt, substitute the same generated password in the SQL statement:
+### Restore
 
-```sql
-CREATE DATABASE IF NOT EXISTS porsca_staging CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'porsca_staging'@'localhost' IDENTIFIED BY '<strong-staging-password>';
-GRANT ALL PRIVILEGES ON porsca_staging.* TO 'porsca_staging'@'localhost';
-```
+For a host loss or data incident, stop writes and have the operator provision/recover a clean host and restore the appropriate database backup or Lightsail snapshot. Restore into an isolated database first and validate schema, record integrity, application configuration, and HTTPS health before routing staging traffic. Keep `.env` and keys host-only; reapply least-privilege ownership, `deploy:www-data` writable paths, firewall, TLS, and scheduler configuration. Record the restored revision and data point with the human release owner; restart QA only through a new cycle decision. Never overwrite or discard financial data without operator authorization.
 
-Success: MySQL creates the database and user and grants access without an error. If MySQL reports that either already exists, keep the existing account and make sure its password and grants match the environment values.
+## Checkout v3 promotion boundary
 
-Only after the human release owner has created a new QA cycle, reset the isolated database once at its start. Both shells:
+`porsca-mobile-api-v2` names the shipped RBAC-era contract; new durable checkout resources use `porsca-mobile-api-v3`, retaining `/api/v1` and old endpoints for compatibility. This foundation is an API-only candidate, not authorization to promote: update the paired mobile client/contract to v3, select exact paired full SHAs, run both repositories' checks, and obtain human formal QA approval. See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md).
 
-```text
-php artisan qa:reset --force
-```
+## Release handoff
 
-Success: the command ends with `Staging reset to qa-baseline-2026-10.` and seeds four products. It runs a fresh migration and seed on the `staging` connection. This is destructive, so run it only before a cycle starts. After the cycle starts, preserve the database. Do not reset, reseed, or edit rows by hand. A new baseline requires a new cycle ID and a fresh reset.
+The staging record names exact API and mobile commits, baseline version, database environment, stable URL, and PayMongo sandbox context. Follow [QA-CYCLE.md](QA-CYCLE.md); human QA owns final approval.
 
-After changing the environment file, clear cached configuration and start the API (both shells):
+## Appendix: Tailscale Funnel break-glass only
+
+Use a local API and isolated local staging database only for operator checks or internal development builds when Lightsail is unavailable. Funnel is not the permanent tester origin, and a preview app cannot silently switch origins. Never use the developer database or copy live financial data. Keep local settings private.
 
 ```text
 php artisan config:clear
 php artisan serve --host=0.0.0.0 --port=8000
-```
-
-Success: the first command says the configuration cache was cleared; the server starts listening on port 8000. Keep the server running in this terminal. Verify the database has the expected tables (both shells):
-
-```text
-php artisan db:show --database=staging
-```
-
-Success: output identifies `porsca_staging` and lists tables including `migrations` and the application's product and sales tables.
-
-Check API health in PowerShell:
-
-```powershell
-Invoke-RestMethod -Uri 'https://<stable-api-host>/api/v1/health'
-```
-
-In Bash:
-
-```bash
-curl https://<stable-api-host>/api/v1/health
-```
-
-Success: HTTP 200 and JSON with `environment: staging`, `database: ok`, and `status: ok`.
-
-SQLite is a fallback for isolated local checks only: configure `STAGING_DB_CONNECTION=sqlite` and `STAGING_DB_DATABASE` as an absolute path to a separate SQLite file. Do not use SQLite as the staging server database.
-
-## Local machine and Tailscale Funnel
-
-A local staging server is reachable only while the computer is on and the process is running. A home or office network can also block inbound traffic. A Tailscale Funnel URL must be enabled on the same machine that runs the API. With the API listening on port 8000, run in either PowerShell or Bash:
-
-```text
 tailscale funnel 8000
 ```
 
-Success looks like Tailscale printing an HTTPS URL. Check that URL before giving it to testers.
-
-PowerShell:
-
-```powershell
-Invoke-RestMethod -Uri 'https://<tailscale-funnel-host>/api/v1/health'
-```
-
-Bash:
-
-```bash
-curl https://<tailscale-funnel-host>/api/v1/health
-```
-
-The Funnel URL must be stable for the complete QA cycle. Do not use a temporary tunnel URL. Do not promise uptime from a developer laptop. Keep the laptop awake, keep the API process running, and record the exact stable URL in the cycle record. If the URL changes, stop the cycle and create a new environment record.
-
-The mobile build must use the full URL ending in `/api/v1`. A phone must not use `localhost`.
-
-## Release handoff
-
-The staging record must name the exact API commit, the exact mobile commit, the baseline version, the database environment, the stable URL, and the PayMongo sandbox context. Follow [QA-CYCLE.md](QA-CYCLE.md). Human QA owns the final approval.
+Check the printed HTTPS URL before use and request `/api/v1/health`. Require healthy staging/sandbox fields, keep the API process and machine running, and record the exact temporary URL for any approved break-glass cycle. A changed stable origin, SHA, baseline, or sandbox context requires a new environment/cycle record. Internal clients use the full Funnel URL ending in `/api/v1`; preview rebuilds remain manual.

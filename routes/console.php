@@ -23,11 +23,15 @@ Artisan::command('qa:reset {--force}', function () {
     }
 
     config(['database.default' => 'staging']);
-    $this->call('migrate:fresh', [
+    $status = $this->call('migrate:fresh', [
         '--database' => 'staging',
         '--seed' => true,
         '--force' => true,
     ]);
+
+    if ($status !== 0) {
+        return $status;
+    }
 
     $this->info('Staging reset to '.DatabaseSeeder::BASELINE_VERSION.'.');
 

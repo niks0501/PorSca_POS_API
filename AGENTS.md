@@ -16,6 +16,8 @@ Run the one required repository check:
 composer verify
 ```
 
+Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`.
+
 Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Documentation map
@@ -23,7 +25,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 - Setup — [docs/SETUP.md](docs/SETUP.md)
 - Windows 11 native Wi-Fi LAN development — [README.md](README.md#windows-11-native-wi-fi-lan-development)
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Staging and promotion — [docs/STAGING.md](docs/STAGING.md)
+- Staging on AWS Lightsail (SSH deploy on staging pushes) and promotion — [docs/STAGING.md](docs/STAGING.md)
 - Testing — [docs/TESTING.md](docs/TESTING.md)
 - Cash-sale and QR payment contract, including sandbox reservations and paid-unfulfilled reconciliation — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#checkout-and-payments)
 - Formal QA cycle — [docs/QA-CYCLE.md](docs/QA-CYCLE.md)
@@ -31,7 +33,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 ## Cross-repo handshake
 
-- Contract: use `porsca-mobile-api-v2` only after verifying that name in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md); never rely on memory.
+- Contract: checkout foundation targets `porsca-mobile-api-v3`; `porsca-mobile-api-v2` remains the RBAC-era compatibility contract. Verify the selected version in the [API contract docs](docs/ARCHITECTURE.md) and the mobile repository's [API contract](https://github.com/alfredc-12/PorSca_POS/blob/staging/docs/API-CONTRACT.md) before pairing; never rely on memory or treat an API-only candidate as paired.
 - Pair check: compare the exact full API and mobile commit SHAs in the current QA record with both repositories' `staging` tips, and confirm both contract documents name the same version.
 - Promotion: promote the exact paired revisions from `staging` to `main` together, and only after a human approves the formal QA cycle.
 
@@ -40,11 +42,13 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 - Never merge or promote a release.
 - Never approve a QA round; final QA approval belongs to a human.
 - Secrets and webhook verification material stay server-side; use [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#paymongo-webhook) for the signed sandbox protocol and the documented nested event resource (`data.attributes.data`). Real PayMongo QA needs operator-owned credentials and a stable webhook URL; the mobile Leave payment action is a separate stage C follow-up.
+- For webhook diagnosis or payload research, read the local webhook contract before external provider docs and verify cited payload paths against it.
 - Staging is the workbench; `main` is the shop window.
 
 ## Freshness
 
 A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`. Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
+Before opening the PR, check its final diff for the corresponding root-guidance update; running the initializer is not a freshness check.
 
 ## Maintaining this file
 

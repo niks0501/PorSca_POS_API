@@ -11,6 +11,10 @@ class Sale extends Model
 {
     use HasFactory;
 
+    public const CHECKOUT_NAMESPACE = 'checkout';
+
+    public const SETTLEMENT_NAMESPACE = 'settlement';
+
     protected $guarded = [];
 
     protected function casts(): array

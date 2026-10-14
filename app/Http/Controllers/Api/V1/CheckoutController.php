@@ -49,6 +49,8 @@ class CheckoutController extends ApiController
         $validated = $validator->validated();
         if ($validated['payment_method'] === 'cash') {
             $wasExisting = Sale::query()
+                ->where('key_namespace', Sale::CHECKOUT_NAMESPACE)
+                ->where('payment_method', 'cash')
                 ->where('idempotency_key', $validated['idempotency_key'])
                 ->exists();
             $sale = $this->cashSales->create(

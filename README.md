@@ -2,9 +2,9 @@
 
 ## What this is
 
-This is the PorSca point-of-sale API. It is the source of truth for products, stock, sales, payments, and payment events.
+This is the PorSca point-of-sale API. It is the source of truth for products, stock, durable checkouts, sales, payments, reconciliation, and payment events.
 
-The API is a Laravel app. It uses PHP and MySQL for local development. QR Ph practice payments work without payment keys.
+The API is a Laravel app. It uses PHP and MySQL for local development. A local QR Ph practice fixture is available without provider keys; see the [checkout contract](docs/CHECKOUT-CONTRACT.md) for its limits.
 
 ## What you need first
 

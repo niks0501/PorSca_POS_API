@@ -1,6 +1,6 @@
 # API architecture and mobile contract
 
-**Contract version for this release unit: `porsca-mobile-api-v2`. Verify this value against the mobile repository's `docs/API-CONTRACT.md` before pairing revisions.**
+**Checkout foundation candidate contract: `porsca-mobile-api-v3`. The RBAC-era `porsca-mobile-api-v2` routes remain compatible; v3 adds the durable checkout authority resources documented in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md). The URL base remains `/api/v1`. Verify the selected version against the mobile repository's `docs/API-CONTRACT.md` before pairing revisions; this API-only candidate is not yet a paired release.**
 
 ## Authority
 
@@ -29,7 +29,7 @@ Unknown, revoked, expired, or deactivated-account tokens return `401`. A valid t
 
 ### Authentication
 
-`POST /auth/login` is public and rate limited to 5 attempts per minute per IP and email.
+`POST /auth/login` is public and rate limited to 5 attempts per minute per IP and email, with email casing normalized so capitalization variants share the same limit.
 
 Request:
 
@@ -63,7 +63,7 @@ Wrong credentials and deactivated accounts both return `401` with `error.code` `
 
 - `GET /users` returns `{ "data": { "items": [ ... ] } }`.
 - `POST /users` creates a cashier with `name`, `email`, and `password` (minimum 8 characters). The server always sets `role` to `cashier`; a supplied `role` is ignored.
-- `PATCH /users/{id}` updates `name`, `email`, `password`, and/or `is_active`. Setting `is_active` to `false` revokes every token for that user.
+- `PATCH /users/{id}` updates `name`, `email`, `password`, and/or `is_active`. Setting `is_active` to `false` revokes every token for that user. Reactivating an inactive user also removes any tokens left by older behavior, so they cannot become valid again.
 - `POST /users/{id}/deactivate` sets `is_active` to `false` and revokes every token, then returns `204`.
 
 ## Roles
@@ -138,9 +138,13 @@ Sales deduct stock only as part of a successful cash sale or payment settlement.
 
 ### Checkout and payments
 
+The following cash/payment endpoints are the retained **v2 compatibility surface**; the legacy lifecycle details below apply only to payments without a v3 checkout link. Checkout Simulation clients must use the **v3 logical-checkout resources** in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md), not independent legacy cash/payment calls to switch tender. Existing records are not assigned invented checkout identities or operator attribution. Linked v3 payments always route refresh/webhook settlement through the v3 authority, including when accessed through legacy payment aliases; their lifecycle, reservation, and finality rules are defined in [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md).
+
 `POST /sales` and `POST /sales/cash` complete a cash sale. `POST /sales/checkout` also completes a cash sale when `payment_method` is `cash`; without that field it retains the pending QR Ph behavior. Cash requests accept `product_id`/`productId` and `quantity` line items, plus `cash_received`/`cashReceived`. A supplied client `total` or line `unit_price` is ignored. The API reads current product prices, computes the total, locks and revalidates every inventory row immediately before writing, then records the sale, sale items, ledger transaction, and stock deductions in one database transaction.
 
-Cash responses contain the completed sale, authoritative `total_amount`, `cash_received`, `change_amount`, and item price snapshots. A new request returns `201`; retrying the same idempotency key and payload returns the original sale with `200`. A key reused with a different cart or cash amount returns `409`; insufficient cash returns `422`, and insufficient stock returns `409` without creating any sale, ledger row, or stock change.
+Cash responses contain the completed sale, authoritative `total_amount`, `cash_received`, `change_amount`, and item price snapshots. A new request returns `201`; retrying the same idempotency key and payload returns the original cash sale with `200`. A key reused with a different cart, cash amount, or checkout kind returns `409`; insufficient cash returns `422`, and insufficient stock returns `409` without creating any sale, ledger row, or stock change.
+
+Public checkout keys are distinct from internal settlement identity: sale uniqueness is `(key_namespace, idempotency_key)`, with `checkout` for cash and `settlement` for paid QR sales. Internal `payment:<id>` key text is not reserved from clients. Public cash and QR checkout keys still conflict with each other. Both cash replay lookup paths reject a non-cash sale, even when its legacy request hash is null. The namespace migration preserves existing keys and sale IDs, backfills non-cash sales into `settlement`, and refuses rollback if cross-namespace duplicate key text exists. Deploy the migration and code together with checkout/settlement writers stopped; do not run mixed old/new writers. A rollback after overlapping keys have been used requires operator reconciliation, not automatic deletion or rewriting of sales.
 
 `POST /payments` is an alias with the same request and response as the QR checkout.
 
@@ -175,7 +179,7 @@ The response contains:
     "currency": "PHP",
     "payment_method": "qrph",
     "status": "pending",
-    "qr_payload": "https://sandbox.paymongo.test/qr/...",
+    "qr_payload": "PORSCA PRACTICE ONLY - NOT A PAYMENT - 1-550e8400-e29b-41d4-a716-446655440000",
     "checkout_url": null,
     "sale_id": null,
     "failure_reason": null,
@@ -186,13 +190,11 @@ The response contains:
 }
 ```
 
-With no secret key, `provider_payment_id` starts with `sandbox_` and the QR value is a local practice value. It does not charge money. With a key, the server calls the PayMongo sandbox and still asks only for `qrph`.
+Without a PayMongo secret, `provider_payment_id` starts with `sandbox_` and `qr_payload` is the unique plain-text value labeled `PORSCA PRACTICE ONLY - NOT A PAYMENT`, as shown above. The mobile client can encode that text into a QR symbol for display practice; it is not a provider payment QR and cannot settle as paid. With a configured sandbox secret, the API creates the PaymentIntent, QR Ph PaymentMethod, and attachment server-side and requests only `qrph`; the provider's `next_action.code.image_url` is returned as `qr_payload` with the payment identifier. The provider `test_url` is operator-only and is never returned.
 
 `GET /payments/{id}` returns the stored payment. `GET /payments/{id}/status` is an alias for that read. `POST /payments/{id}/refresh` (or `POST /payments/{id}/status`) asks the PayMongo sandbox for the latest status; **it is not a cancellation endpoint**. The cashier may leave the QR screen, but this does not cancel a payable attempt. Statuses are `pending`, `paid`, `failed`, `expired`, and `paid_unfulfilled` (money received but stock unavailable: operator reconciliation/refund required). `cancelled` remains readable for legacy attempts; no new local cancel action is provided. Mobile's Leave payment wording is stage C follow-up.
 
-With a configured sandbox secret, the API creates the PaymentIntent, QR Ph PaymentMethod, and attachment entirely server-side. The mobile client receives only the provider payment identifier and QR payload. Without a secret, the response is explicitly labeled as a local practice fixture and does not charge money.
-
-Reservations expire at the configured QR lifetime (60–9000 seconds). Every cash sale, QR checkout and stock-reducing product/inventory edit locks inventory and respects other active reservations. Verified `qrph.expired` releases the reservation; an intent returning to `awaiting_payment_method` is not evidence of failed money movement. An authoritative paid intent matching the immutable ID, amount, PHP and sandbox mode commits payment, sale, items, success ledger and deduction together. Duplicate/out-of-order webhook and refresh return the same sale; late failure cannot downgrade paid. If paid arrives after expiry/release and stock cannot be fulfilled, status becomes `paid_unfulfilled`, with no sale or deduction and a reconciliation ledger row; manual refund or inventory resolution is required. Provider/network uncertainty remains pending, not paid. An unverified local practice fixture **cannot** settle as paid. A QR image is returned in `qr_payload` (`next_action.code.image_url`); provider `test_url` is operator-only and never returned.
+Reservations expire at the configured QR lifetime (60–9000 seconds). Every cash sale, QR checkout and stock-reducing product/inventory edit locks inventory and respects other active reservations. Paid settlement locks its products and inventory in ascending product order before locking the payment row, matching the stock-edit lock order and preventing settlement/stock-edit deadlocks. Reservation totals use current locking reads after the inventory lock; under MySQL `REPEATABLE READ`, locking inventory alone does not refresh an earlier transaction snapshot. Verified `qrph.expired` releases the reservation; an intent returning to `awaiting_payment_method` is not evidence of failed money movement. An authoritative paid intent matching the immutable ID, amount, PHP and sandbox mode commits payment, sale, items, success ledger and deduction together. Duplicate/out-of-order webhook and refresh return the same sale; late failure cannot downgrade paid. If paid arrives after expiry/release and stock cannot be fulfilled, status becomes `paid_unfulfilled`, with no sale or deduction and a reconciliation ledger row; manual refund or inventory resolution is required. Provider/network uncertainty remains pending, not paid.
 
 ### Sales
 
