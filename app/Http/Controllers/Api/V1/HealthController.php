@@ -25,7 +25,7 @@ class HealthController extends ApiController
             'environment' => app()->environment(),
             'database' => $database,
             'paymongo_mode' => config('services.paymongo.mode'),
-            'commit' => config('app.commit'),
+            'commit' => config('app.commit') ?? 'unknown',
             'status' => $healthy ? 'ok' : 'degraded',
         ], $healthy ? 200 : 503);
     }
