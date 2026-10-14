@@ -27,7 +27,10 @@ jobs:
           set -euo pipefail
           eval "$(ssh-agent -s)" >/dev/null
           trap 'ssh-agent -k >/dev/null' EXIT
-          printf '%s\n' "$STAGING_SSH_KEY" | ssh-add - >/dev/null 2>&1
+          if ! printf '%s\n' "$STAGING_SSH_KEY" | ssh-add - >/dev/null 2>&1; then
+            echo "ssh-add could not load STAGING_SSH_KEY (not a valid unencrypted private key?)" >&2
+            exit 1
+          fi
           unset STAGING_SSH_KEY
           # Public host keys stay in a pipe, not a persisted credentials file.
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
