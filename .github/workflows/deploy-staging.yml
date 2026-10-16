@@ -53,6 +53,7 @@ jobs:
           fi
           PREVIOUS_SHA="$(git rev-parse HEAD)"
           echo "Rollback notice: previous deployed SHA was $PREVIOUS_SHA"
+          php artisan down
           git reset --hard "$1" >/dev/null
           # Restore PHP-FPM write access after reset (deploy owns tracked files).
           for path in storage bootstrap/cache; do
@@ -63,11 +64,8 @@ jobs:
           done
           composer install --no-dev --optimize-autoloader --no-interaction --no-progress
           php artisan config:clear
-          php artisan down
-          trap 'php artisan up' EXIT
           php artisan migrate --force
           php artisan up
-          trap - EXIT
           # Record before caching so HTTP workers see the deployed SHA.
           php -r '$p=".env"; $s=file_get_contents($p); $s=preg_replace("/^APP_COMMIT=.*\\R?/m", "", $s); file_put_contents($p, rtrim($s)."\nAPP_COMMIT=".$argv[1]."\n");' "$1"
           php artisan config:cache
