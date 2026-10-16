@@ -13,6 +13,7 @@ use App\Services\ReservedStock;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -32,7 +33,17 @@ class ReservationConcurrencyTest extends TestCase
         config(['services.paymongo.mode' => 'sandbox', 'services.paymongo.secret_key' => '']);
     }
 
-    public function test_concurrent_qr_checkouts_cannot_both_reserve_the_last_unit_under_repeatable_read(): void
+    public static function checkoutRequests(): array
+    {
+        return [
+            'different keys' => ['race-checkout-b', 1, 'insufficient_stock'],
+            'matching replay' => ['race-checkout-a', 1, 'payable'],
+            'changed cart replay' => ['race-checkout-a', 2, 'idempotency_conflict'],
+        ];
+    }
+
+    #[DataProvider('checkoutRequests')]
+    public function test_concurrent_qr_checkouts_preserve_stock_and_replay_under_repeatable_read(string $key, int $quantity, string $outcome): void
     {
         $product = Product::factory()->create(['price' => 500]);
         $product->inventory()->create(['quantity' => 1, 'reorder_level' => 0]);
@@ -41,6 +52,8 @@ class ReservationConcurrencyTest extends TestCase
         $worker->setInput(json_encode([
             'connection' => config('database.connections.'.DB::getDefaultConnection()),
             'product_id' => $product->id,
+            'idempotency_key' => $key,
+            'quantity' => $quantity,
         ], JSON_THROW_ON_ERROR));
 
         $started = false;
@@ -50,12 +63,10 @@ class ReservationConcurrencyTest extends TestCase
             }
             $started = true;
 
-            // Checkout A now holds the product lock. Checkout B establishes its
-            // RR snapshot via the real sales-idempotency read, then waits on A.
             $worker->start();
             $this->assertTrue($worker->waitUntil(
-                fn () => str_contains($worker->getOutput(), "snapshot-ready\n"),
-            ), 'Checkout B did not establish its snapshot: '.$worker->getErrorOutput());
+                fn () => str_contains($worker->getOutput(), "claim-check-ready\n"),
+            ), 'Checkout B did not reach its claim check: '.$worker->getErrorOutput());
         });
 
         try {
@@ -65,11 +76,16 @@ class ReservationConcurrencyTest extends TestCase
             $this->assertTrue($started);
             $this->assertSame(0, $worker->wait(), $worker->getErrorOutput());
             $lines = explode("\n", trim($worker->getOutput()));
-            $loser = json_decode(end($lines), true, flags: JSON_THROW_ON_ERROR);
+            $result = json_decode(end($lines), true, flags: JSON_THROW_ON_ERROR);
 
             $this->assertSame(Payment::PENDING, $winner->status);
             $this->assertNotNull($winner->qr_payload);
-            $this->assertSame('insufficient_stock', $loser['outcome']);
+            $this->assertSame($outcome, $result['outcome']);
+            if ($outcome === 'payable') {
+                $this->assertSame($winner->id, $result['id']);
+                $this->assertSame(Payment::PENDING, $result['status']);
+                $this->assertNotNull($result['qr_payload']);
+            }
             $this->assertSame(1, Payment::count());
             $this->assertDatabaseCount('payment_items', 1);
             $this->assertSame(1, Transaction::where('type', 'payment_created')->count());

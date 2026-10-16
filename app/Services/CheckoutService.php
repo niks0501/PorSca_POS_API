@@ -24,12 +24,6 @@ class CheckoutService
         }
         $items = $this->normalizeItems($requestedItems);
         $requestHash = hash('sha256', json_encode($items, JSON_THROW_ON_ERROR));
-        $existing = Payment::where('idempotency_key', $idempotencyKey)->first();
-        if ($existing !== null) {
-            $this->assertSameRequest($existing, $requestHash);
-
-            return $this->provision($existing);
-        }
 
         try {
             $payment = DB::transaction(function () use ($idempotencyKey, $items, $requestHash, $expirySeconds): Payment {
@@ -38,6 +32,12 @@ class CheckoutService
                 }
                 $products = Product::query()->whereIn('id', array_keys($items))->where('active', true)
                     ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+                $existing = Payment::where('idempotency_key', $idempotencyKey)->lockForUpdate()->first();
+                if ($existing !== null) {
+                    $this->assertSameRequest($existing, $requestHash);
+
+                    return $existing;
+                }
                 if ($products->count() !== count($items)) {
                     throw new ApiException('One or more products are unavailable.', 422, ['items' => ['Unavailable product.']]);
                 }
