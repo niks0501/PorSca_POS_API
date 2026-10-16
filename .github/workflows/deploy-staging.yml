@@ -16,12 +16,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+      - name: Require a clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "Refusing to deploy from a dirty checkout" >&2
+            exit 1
+          fi
       - name: Deploy manually selected revision over SSH
         shell: bash
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
           STAGING_USER: ${{ secrets.STAGING_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST_KEY: ${{ vars.STAGING_HOST_KEY }}
           DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -36,8 +46,12 @@ jobs:
           # Fetch public host keys into a temp file first: the previous
           # process substitution raced a still-running ssh-keyscan and ssh
           # read an incomplete known-hosts, failing host verification.
-          if ! timeout 30 ssh-keyscan -H "$STAGING_HOST" >"$KNOWN_HOSTS" 2>/dev/null || ! test -s "$KNOWN_HOSTS"; then
+          if ! timeout 30 ssh-keyscan "$STAGING_HOST" >"$KNOWN_HOSTS" 2>/dev/null || ! test -s "$KNOWN_HOSTS"; then
             echo "ssh-keyscan obtained no host keys for STAGING_HOST" >&2
+            exit 1
+          fi
+          if [ -z "$STAGING_HOST_KEY" ] || ! grep -Fqx -- "$STAGING_HOST_KEY" "$KNOWN_HOSTS"; then
+            echo "STAGING_HOST key does not match the pinned STAGING_HOST_KEY variable" >&2
             exit 1
           fi
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
@@ -48,6 +62,8 @@ jobs:
           git fetch origin staging --quiet
           # Do not roll back staging when a queued/manual run has become stale.
           test "$(git rev-parse FETCH_HEAD)" = "$1"
+          PREVIOUS_SHA="$(git rev-parse HEAD)"
+          echo "Rollback notice: previous deployed SHA was $PREVIOUS_SHA"
           git reset --hard "$1" >/dev/null
           # Restore PHP-FPM write access after reset (deploy owns tracked files).
           for path in storage bootstrap/cache; do
@@ -58,7 +74,11 @@ jobs:
           done
           composer install --no-dev --optimize-autoloader --no-interaction --no-progress
           php artisan config:clear
+          php artisan down
+          trap 'php artisan up' EXIT
           php artisan migrate --force
+          php artisan up
+          trap - EXIT
           # Record before caching so HTTP workers see the deployed SHA.
           php -r '$p=".env"; $s=file_get_contents($p); $s=preg_replace("/^APP_COMMIT=.*\\R?/m", "", $s); file_put_contents($p, rtrim($s)."\nAPP_COMMIT=".$argv[1]."\n");' "$1"
           php artisan config:cache
