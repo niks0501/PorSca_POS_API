@@ -37,6 +37,7 @@ class CheckoutController extends ApiController
                 Rule::requiredIf($input['payment_method'] === 'cash'),
                 'integer',
                 'min:0',
+                'max:4294967295',
             ],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],

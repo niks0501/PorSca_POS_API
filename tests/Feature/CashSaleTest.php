@@ -2,13 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\ApiException;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\CashSaleService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -23,6 +26,91 @@ class CashSaleTest extends TestCase
         parent::setUp();
 
         $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
+    }
+
+    public function test_cash_input_overflow_is_rejected_without_writes(): void
+    {
+        $product = $this->product(price: 1, quantity: 5);
+        foreach (['/api/v1/sales/cash', '/api/v1/sales/checkout', '/api/v1/sales'] as $path) {
+            $this->postJson($path, [
+                'idempotency_key' => 'cash-overflow', 'payment_method' => 'cash', 'cash_received' => 4294967296,
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ], $this->headers())->assertUnprocessable()->assertJsonStructure(['error' => ['details' => ['cash_received']]]);
+        }
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('transactions', 0);
+        $this->assertSame(5, $product->inventory()->value('quantity'));
+    }
+
+    public function test_cash_service_rejects_overflow_from_non_http_callers(): void
+    {
+        $product = $this->product(price: 0, quantity: 5);
+        try {
+            app(CashSaleService::class)->create('cash-service-overflow', [['product_id' => $product->id, 'quantity' => 1]], 4294967296);
+            $this->fail('Cash overflow was accepted.');
+        } catch (ApiException $exception) {
+            $this->assertSame(422, $exception->status);
+        }
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('transactions', 0);
+        $this->assertSame(5, $product->inventory()->value('quantity'));
+    }
+
+    public static function overflowingCarts(): array
+    {
+        return ['line multiplication' => [[2147483648], 2], 'cart addition' => [[2147483648, 2147483648], 1]];
+    }
+
+    public static function excessiveQuantities(): array
+    {
+        return [[10001], [6000, 6000], [4294967296]];
+    }
+
+    #[DataProvider('excessiveQuantities')]
+    public function test_cash_service_bounds_aggregated_item_quantities(int ...$quantities): void
+    {
+        $product = $this->product(price: 0, quantity: 20000);
+        $items = array_map(fn (int $quantity) => ['product_id' => $product->id, 'quantity' => $quantity], $quantities);
+        try {
+            app(CashSaleService::class)->create('cash-quantity-overflow', $items, 0);
+            $this->fail('Excessive quantity was accepted.');
+        } catch (ApiException $exception) {
+            $this->assertSame(422, $exception->status);
+        }
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('transactions', 0);
+        $this->assertSame(20000, $product->inventory()->value('quantity'));
+    }
+
+    #[DataProvider('overflowingCarts')]
+    public function test_cash_totals_reject_overflow_before_writes(array $prices, int $quantity): void
+    {
+        $items = [];
+        foreach ($prices as $price) {
+            $product = $this->product(price: $price, quantity: 5);
+            $items[] = ['product_id' => $product->id, 'quantity' => $quantity];
+        }
+        $this->postJson('/api/v1/sales/cash', [
+            'idempotency_key' => 'cash-total-overflow', 'cash_received' => 4294967295, 'items' => $items,
+        ], $this->headers())->assertUnprocessable()->assertJsonStructure(['error' => ['details' => ['total_amount']]]);
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('transactions', 0);
+        foreach ($items as $item) {
+            $this->assertDatabaseHas('inventories', ['product_id' => $item['product_id'], 'quantity' => 5]);
+        }
+    }
+
+    public function test_cash_unsigned_integer_boundaries_are_accepted(): void
+    {
+        foreach ([4294967295, 0] as $price) {
+            $product = $this->product(price: $price, quantity: 1);
+            $this->postJson('/api/v1/sales/cash', [
+                'idempotency_key' => 'cash-boundary-'.$price, 'cash_received' => 4294967295,
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ], $this->headers())->assertCreated()
+                ->assertJsonPath('data.total_amount', $price)
+                ->assertJsonPath('data.change_amount', 4294967295 - $price);
+        }
     }
 
     public function test_cash_sale_recomputes_totals_persists_snapshots_and_deducts_stock_atomically(): void

@@ -16,7 +16,7 @@ class AuthController extends ApiController
      * the email does not match any user, so login timing does not reveal
      * whether an account exists.
      */
-    private const DUMMY_HASH = '$2y$10$O6465KiSK1gsAdl9.Xj9e.uCn0Adtb4tsNOG7sNX6GvA7v6FNVHw6';
+    private const DUMMY_HASH_TEMPLATE = '$2y$%02d$O6465KiSK1gsAdl9.Xj9e.uCn0Adtb4tsNOG7sNX6GvA7v6FNVHw6';
 
     public function login(Request $request): JsonResponse
     {
@@ -34,7 +34,7 @@ class AuthController extends ApiController
 
             $passwordMatches = Hash::check(
                 $credentials['password'],
-                $user?->password ?? self::DUMMY_HASH,
+                $user?->password ?? sprintf(self::DUMMY_HASH_TEMPLATE, (int) config('hashing.bcrypt.rounds', 12)),
             );
 
             if ($user === null || ! $passwordMatches || ! $user->is_active) {

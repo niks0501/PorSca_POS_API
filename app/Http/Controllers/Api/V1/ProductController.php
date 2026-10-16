@@ -152,8 +152,8 @@ class ProductController extends ApiController
         }
 
         $validated = Validator::make($input, [
-            'stock' => ['required', 'integer', 'min:0'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            'stock' => ['required', 'integer', 'min:0', 'max:4294967295'],
+            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:4294967295'],
         ])->validate();
 
         // Retry the outer edit, not just its reservation read or inventory write.
@@ -213,9 +213,9 @@ class ProductController extends ApiController
             'name' => ['required', 'string', 'max:255'],
             'category' => ['sometimes', 'nullable', 'string', 'max:100'],
             'description' => ['sometimes', 'nullable', 'string'],
-            'price' => ['required', 'integer', 'min:0'],
-            'stock' => ['required', 'integer', 'min:0'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            'price' => ['required', 'integer', 'min:0', 'max:4294967295'],
+            'stock' => ['required', 'integer', 'min:0', 'max:4294967295'],
+            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:4294967295'],
         ];
     }
 
@@ -228,9 +228,9 @@ class ProductController extends ApiController
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'category' => ['sometimes', 'nullable', 'string', 'max:100'],
             'description' => ['sometimes', 'nullable', 'string'],
-            'price' => ['sometimes', 'required', 'integer', 'min:0'],
-            'stock' => ['sometimes', 'required', 'integer', 'min:0'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            'price' => ['sometimes', 'required', 'integer', 'min:0', 'max:4294967295'],
+            'stock' => ['sometimes', 'required', 'integer', 'min:0', 'max:4294967295'],
+            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:4294967295'],
         ];
     }
 

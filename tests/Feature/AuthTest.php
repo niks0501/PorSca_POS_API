@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class AuthTest extends TestCase
@@ -60,6 +62,36 @@ class AuthTest extends TestCase
         $wrongPassword->assertStatus(401)->assertJsonPath('error.code', 'unauthorized');
         $unknownEmail->assertStatus(401)->assertJsonPath('error.code', 'unauthorized');
         $this->assertSame($wrongPassword->json('error.message'), $unknownEmail->json('error.message'));
+    }
+
+    public static function bcryptCosts(): array
+    {
+        return [[4], [6]];
+    }
+
+    #[DataProvider('bcryptCosts')]
+    public function test_unknown_email_uses_the_configured_password_verification_cost(int $cost): void
+    {
+        config(['hashing.bcrypt.rounds' => $cost]);
+        $hasher = Hash::driver();
+        $hasher->setRounds($cost);
+        User::factory()->create(['email' => 'known@example.test', 'password' => 'secret-password']);
+        $costs = [];
+        Hash::partialMock()->shouldReceive('check')->twice()->andReturnUsing(
+            function (string $password, string $hash) use ($hasher, &$costs): bool {
+                $costs[] = $hasher->info($hash)['options']['cost'];
+
+                return $hasher->check($password, $hash);
+            },
+        );
+
+        foreach (['known@example.test', 'unknown@example.test'] as $email) {
+            $this->postJson('/api/v1/auth/login', ['email' => $email, 'password' => 'wrong-password'])
+                ->assertUnauthorized()->assertJsonPath('error.code', 'unauthorized');
+        }
+
+        $this->assertSame([$cost, $cost], $costs);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     public function test_login_rejects_invalid_input(): void

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Domain\CheckoutRules;
 use App\Exceptions\ApiException;
 use App\Exceptions\IdempotencyConflict;
 use App\Exceptions\InsufficientCash;
@@ -18,6 +19,9 @@ class CashSaleService
 
     public function create(string $idempotencyKey, array $requestedItems, int $cashReceived): Sale
     {
+        if ($cashReceived < 0 || $cashReceived > 4294967295) {
+            throw new ApiException('Invalid cash amount.', 422, ['cash_received' => ['Cash must be within the supported integer centavo range.']]);
+        }
         $items = $this->normalizeItems($requestedItems);
         $requestHash = hash('sha256', json_encode([
             'items' => $items,
@@ -38,7 +42,7 @@ class CashSaleService
                     return $existing->fresh()->load('items.product');
                 }
 
-                if (Payment::query()->where('idempotency_key', $idempotencyKey)->exists()) {
+                if (Payment::query()->where('idempotency_key', $idempotencyKey)->lockForUpdate()->exists()) {
                     throw new IdempotencyConflict;
                 }
 
@@ -64,7 +68,11 @@ class CashSaleService
 
                 $total = 0;
                 foreach ($items as $productId => $quantity) {
-                    $total += $products->get($productId)->price * $quantity;
+                    try {
+                        $total = CheckoutRules::lineTotal($total, $products->get($productId)->price, $quantity);
+                    } catch (\InvalidArgumentException $exception) {
+                        throw new ApiException($exception->getMessage(), 422, ['total_amount' => [$exception->getMessage()]]);
+                    }
                 }
 
                 if ($cashReceived < $total) {
@@ -146,9 +154,9 @@ class CashSaleService
         foreach ($requestedItems as $item) {
             $productId = (int) ($item['product_id'] ?? 0);
             $quantity = (int) ($item['quantity'] ?? 0);
-            if ($productId < 1 || $quantity < 1) {
-                throw new ApiException('Each item must have a positive product_id and quantity.', 422, [
-                    'items' => ['product_id and quantity must be positive integers.'],
+            if ($productId < 1 || $quantity < 1 || $quantity > 10000 || ($items[$productId] ?? 0) > 10000 - $quantity) {
+                throw new ApiException('Invalid item quantity.', 422, [
+                    'items' => ['Positive product ID and quantity up to 10000 per product required.'],
                 ]);
             }
             $items[$productId] = ($items[$productId] ?? 0) + $quantity;
