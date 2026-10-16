@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
       - name: Deploy manually selected revision over SSH
         shell: bash
         env:
