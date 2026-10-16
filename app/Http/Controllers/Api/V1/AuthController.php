@@ -12,9 +12,8 @@ use Illuminate\Support\Facades\Hash;
 class AuthController extends ApiController
 {
     /**
-     * A valid bcrypt hash used to keep the password check cost constant when
-     * the email does not match any user, so login timing does not reveal
-     * whether an account exists.
+     * Use the configured bcrypt cost for missing-account checks to avoid a
+     * cheaper password-verification path that reveals whether an email exists.
      */
     private const DUMMY_HASH_TEMPLATE = '$2y$%02d$O6465KiSK1gsAdl9.Xj9e.uCn0Adtb4tsNOG7sNX6GvA7v6FNVHw6';
 

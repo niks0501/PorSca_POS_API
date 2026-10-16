@@ -16,7 +16,7 @@ The mobile app receives a base URL that ends at the version prefix:
 https://<api-host>/api/v1
 ```
 
-`GET /health` and `POST /webhooks/paymongo` are public. Every other route needs this header:
+`GET /health`, `POST /auth/login`, and `POST /webhooks/paymongo` are public. Every other route needs this header:
 
 ```http
 Authorization: Bearer <token>
@@ -83,6 +83,7 @@ Success:
   "data": {
     "service": "porsca-api",
     "version": "v1",
+    "commit": "<full-deployed-commit-sha>",
     "environment": "staging",
     "database": "ok",
     "paymongo_mode": "sandbox",
@@ -90,6 +91,8 @@ Success:
   }
 }
 ```
+
+`commit` comes from `APP_COMMIT` and is `unknown` when unset. Database connection failure returns HTTP `503` with `database=unavailable` and `status=degraded`.
 
 ### Products
 
@@ -128,7 +131,7 @@ Admin-only inventory operations use the same product response shape:
 - `PATCH /products/{id}` or `PUT /products/{id}` edits any supplied product fields and can update `stock` atomically with the product details.
 - `PATCH /products/{id}/stock` or `PUT /products/{id}/stock` updates stock atomically. `PATCH /inventory/{id}` is the mobile-contract alias. The request accepts `stock` (or the inventory-compatible alias `quantity`) and an optional `reorder_level`.
 
-Barcode values must be numeric and 8–64 digits and unique. Prices and stock quantities must be non-negative integers. Invalid requests return `422` with the standard `validation_error` details. Create/edit/stock responses are read after the transaction commits, so their `data.stock` is authoritative.
+Barcode values must be numeric and 8–64 digits and unique. Product `price`, `stock` (including its `quantity` alias), and `reorder_level` must be integers from 0 through 4294967295. Invalid requests return `422` with the standard `validation_error` details. Create/edit/stock responses are read after the transaction commits, so their `data.stock` is authoritative.
 
 ### Inventory
 
@@ -142,7 +145,7 @@ The following cash/payment endpoints are the retained **v2 compatibility surface
 
 `POST /sales` and `POST /sales/cash` complete a cash sale. `POST /sales/checkout` also completes a cash sale when `payment_method` is `cash`; without that field it retains the pending QR Ph behavior. Cash requests accept `product_id`/`productId` and `quantity` line items, plus `cash_received`/`cashReceived`. A supplied client `total` or line `unit_price` is ignored. The API reads current product prices, computes the total, locks and revalidates every inventory row immediately before writing, then records the sale, sale items, ledger transaction, and stock deductions in one database transaction.
 
-Cash responses contain the completed sale, authoritative `total_amount`, `cash_received`, `change_amount`, and item price snapshots. A new request returns `201`; retrying the same idempotency key and payload returns the original cash sale with `200`. A key reused with a different cart, cash amount, or checkout kind returns `409`; insufficient cash returns `422`, and insufficient stock returns `409` without creating any sale, ledger row, or stock change.
+Cash responses contain the completed sale, authoritative `total_amount`, `cash_received`, `change_amount`, and item price snapshots. Cash received and the computed total must each be within 0–4294967295 centavos; zero-total cash sales are valid. Item quantities must be integers from 1 through 10000 per product. Out-of-range cash, quantities, or totals return `422` without creating a sale, ledger row, or stock change. A new request returns `201`; retrying the same idempotency key and payload returns the original cash sale with `200`. A key reused with a different cart, cash amount, or checkout kind returns `409`; insufficient cash returns `422`, and insufficient stock returns `409` without creating any sale, ledger row, or stock change.
 
 Public checkout keys are distinct from internal settlement identity: sale uniqueness is `(key_namespace, idempotency_key)`, with `checkout` for cash and `settlement` for paid QR sales. Internal `payment:<id>` key text is not reserved from clients. Public cash and QR checkout keys still conflict with each other. Both cash replay lookup paths reject a non-cash sale, even when its legacy request hash is null. The namespace migration preserves existing keys and sale IDs, backfills non-cash sales into `settlement`, and refuses rollback if cross-namespace duplicate key text exists. Deploy the migration and code together with checkout/settlement writers stopped; do not run mixed old/new writers. A rollback after overlapping keys have been used requires operator reconciliation, not automatic deletion or rewriting of sales.
 
