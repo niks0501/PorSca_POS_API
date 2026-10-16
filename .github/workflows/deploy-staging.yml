@@ -17,14 +17,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Require a clean checkout
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "Refusing to deploy from a dirty checkout" >&2
-            exit 1
-          fi
       - name: Deploy manually selected revision over SSH
         shell: bash
         env:
@@ -62,6 +54,10 @@ jobs:
           git fetch origin staging --quiet
           # Do not roll back staging when a queued/manual run has become stale.
           test "$(git rev-parse FETCH_HEAD)" = "$1"
+          if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "Refusing to reset a dirty staging checkout" >&2
+            exit 1
+          fi
           PREVIOUS_SHA="$(git rev-parse HEAD)"
           echo "Rollback notice: previous deployed SHA was $PREVIOUS_SHA"
           git reset --hard "$1" >/dev/null
