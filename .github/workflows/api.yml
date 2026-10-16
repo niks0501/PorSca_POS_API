@@ -2,9 +2,9 @@ name: API checks
 
 on:
   pull_request:
-    branches: [main, staging]
+    branches: [main, staging, development]
   push:
-    branches: [main, staging]
+    branches: [main, staging, development]
 
 permissions:
   contents: read
