@@ -57,6 +57,11 @@ class CrossTenderConcurrencyTest extends TestCase
                 $input->write("release\n");
                 $input->close();
             }
+            foreach ($workers as $worker) {
+                $this->assertTrue($worker->waitUntil(
+                    fn () => str_contains($worker->getOutput(), "claim-released\n"),
+                ), $worker->getOutput().$worker->getErrorOutput());
+            }
             $outcomes = [];
             foreach ($workers as $tender => $worker) {
                 $this->assertSame(0, $worker->wait(), $worker->getOutput().$worker->getErrorOutput());

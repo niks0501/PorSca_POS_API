@@ -29,6 +29,8 @@ DB::listen(function (QueryExecuted $query) use (&$paused): void {
         if (trim((string) fgets(STDIN)) !== 'release') {
             throw new RuntimeException('Tender barrier was not released.');
         }
+        fwrite(STDOUT, "claim-released\n");
+        fflush(STDOUT);
     }
 });
 
