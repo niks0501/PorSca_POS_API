@@ -50,7 +50,7 @@ read -rsp 'QA cashier password (private): ' QA_CASHIER_PASSWORD; echo
 export QA_CASHIER_PASSWORD
 php artisan tinker --execute='
 $password = env("QA_CASHIER_PASSWORD");
-if (blank($password)) { fwrite(STDERR, "QA_CASHIER_PASSWORD is not set; aborting.\n"); exit(1); }
+if (blank($password) || mb_strlen($password) < 8) { fwrite(STDERR, "QA_CASHIER_PASSWORD must be set with at least 8 characters; aborting.\n"); exit(1); }
 $user = App\Models\User::query()->firstOrCreate(
     ["email" => "qa-cashier@porsca.test"],
     ["name" => "QA Cashier", "password" => $password,
