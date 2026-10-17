@@ -8,7 +8,6 @@ use App\Exceptions\IdempotencyConflict;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -24,59 +23,52 @@ class CheckoutService
         }
         $items = $this->normalizeItems($requestedItems);
         $requestHash = hash('sha256', json_encode($items, JSON_THROW_ON_ERROR));
-        $existing = Payment::where('idempotency_key', $idempotencyKey)->first();
-        if ($existing !== null) {
-            $this->assertSameRequest($existing, $requestHash);
 
-            return $this->provision($existing);
-        }
+        $payment = DB::transaction(function () use ($idempotencyKey, $items, $requestHash, $expirySeconds): Payment {
+            DB::table('checkout_keys')->upsert(
+                [['idempotency_key' => $idempotencyKey]], ['idempotency_key'], ['idempotency_key'],
+            );
+            $products = Product::query()->whereIn('id', array_keys($items))
+                ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $existing = Payment::where('idempotency_key', $idempotencyKey)->lockForUpdate()->first();
+            if ($existing !== null) {
+                $this->assertSameRequest($existing, $requestHash);
 
-        try {
-            $payment = DB::transaction(function () use ($idempotencyKey, $items, $requestHash, $expirySeconds): Payment {
-                if (Sale::where('key_namespace', Sale::CHECKOUT_NAMESPACE)->where('idempotency_key', $idempotencyKey)->exists()) {
-                    throw new IdempotencyConflict;
-                }
-                $products = Product::query()->whereIn('id', array_keys($items))->where('active', true)
-                    ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-                if ($products->count() !== count($items)) {
-                    throw new ApiException('One or more products are unavailable.', 422, ['items' => ['Unavailable product.']]);
-                }
-                $total = 0;
-                foreach ($items as $productId => $quantity) {
-                    $product = $products->get($productId);
-                    if ($product->currency !== 'PHP' || $product->price < 1 || $quantity > intdiv(4294967295, $product->price) || $total > 4294967295 - $product->price * $quantity) {
-                        throw new ApiException('Invalid PHP payment amount.', 422, ['amount' => ['Positive PHP centavos within provider limits are required.']]);
-                    }
-                    $this->stock->lockAndCheck($productId, $quantity, $product->name);
-                    $total += $product->price * $quantity;
-                }
-                $payment = Payment::create([
-                    'idempotency_key' => $idempotencyKey, 'request_hash' => $requestHash,
-                    'provider' => 'paymongo', 'status' => Payment::PENDING,
-                    'amount' => $total, 'currency' => 'PHP', 'payment_method' => 'qrph',
-                    'provider_operation_key' => (string) Str::uuid(),
-                    'reservation_expires_at' => now()->addSeconds($expirySeconds),
-                ]);
-                foreach ($items as $productId => $quantity) {
-                    $payment->items()->create(['product_id' => $productId, 'quantity' => $quantity, 'unit_price' => $products->get($productId)->price]);
-                }
-                $payment->transactions()->create([
-                    'type' => 'payment_created', 'status' => Payment::PENDING,
-                    'amount' => $total, 'currency' => 'PHP', 'occurred_at' => now(),
-                    'metadata' => ['payment_method' => 'qrph'],
-                ]);
-
-                return $payment;
-            }, 3);
-        } catch (UniqueConstraintViolationException $exception) {
-            $existing = Payment::where('idempotency_key', $idempotencyKey)->first();
-            if ($existing === null) {
-                throw $exception;
+                return $existing;
             }
-            $this->assertSameRequest($existing, $requestHash);
+            if (Sale::where('key_namespace', Sale::CHECKOUT_NAMESPACE)->where('idempotency_key', $idempotencyKey)->lockForUpdate()->exists()) {
+                throw new IdempotencyConflict;
+            }
+            if ($products->count() !== count($items) || $products->contains(fn (Product $product) => ! $product->active)) {
+                throw new ApiException('One or more products are unavailable.', 422, ['items' => ['Unavailable product.']]);
+            }
+            $total = 0;
+            foreach ($items as $productId => $quantity) {
+                $product = $products->get($productId);
+                if ($product->currency !== 'PHP' || $product->price < 1 || $quantity > intdiv(4294967295, $product->price) || $total > 4294967295 - $product->price * $quantity) {
+                    throw new ApiException('Invalid PHP payment amount.', 422, ['amount' => ['Positive PHP centavos within provider limits are required.']]);
+                }
+                $this->stock->lockAndCheck($productId, $quantity, $product->name);
+                $total += $product->price * $quantity;
+            }
+            $payment = Payment::create([
+                'idempotency_key' => $idempotencyKey, 'request_hash' => $requestHash,
+                'provider' => 'paymongo', 'status' => Payment::PENDING,
+                'amount' => $total, 'currency' => 'PHP', 'payment_method' => 'qrph',
+                'provider_operation_key' => (string) Str::uuid(),
+                'reservation_expires_at' => now()->addSeconds($expirySeconds),
+            ]);
+            foreach ($items as $productId => $quantity) {
+                $payment->items()->create(['product_id' => $productId, 'quantity' => $quantity, 'unit_price' => $products->get($productId)->price]);
+            }
+            $payment->transactions()->create([
+                'type' => 'payment_created', 'status' => Payment::PENDING,
+                'amount' => $total, 'currency' => 'PHP', 'occurred_at' => now(),
+                'metadata' => ['payment_method' => 'qrph'],
+            ]);
 
-            return $this->provision($existing);
-        }
+            return $payment;
+        }, 3);
 
         return $this->provision($payment);
     }
