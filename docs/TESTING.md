@@ -50,7 +50,7 @@ These tests rebuild the selected database; never point them at staging or produc
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: admin login, health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, signed practice webhook rejection of unsupported settlement, payment read again, sales, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote, pending attempt, and held reservation.
+The collection runs the HTTP contract in order: admin login, managed-product creation/editing/stock update, cash sale with idempotent retry and receipt read, health, catalog products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook, payment read again, sales, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote, pending attempt, and held reservation.
 
 Required tools:
 
