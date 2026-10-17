@@ -41,6 +41,29 @@ Record full SHAs, not branch names alone. Record the seed version printed by `qa
 7. Do not reset, reseed, or patch the database during the cycle.
 8. A human reviews the result and records approval or rejection.
 
+### QA accounts
+
+Use the standing `qa-admin@porsca.test` account (`QA Admin`, `admin`) and `qa-cashier@porsca.test` account (`QA Cashier`, `cashier`). The admin is created by `AdminUserSeeder` from the host's private `ADMIN_*` configuration during `qa:reset`; no cashier is seeded. After each reset, create or restore the cashier once on the API host with a private password (at least 8 characters):
+
+```bash
+read -rsp 'QA cashier password (private): ' QA_CASHIER_PASSWORD; echo
+export QA_CASHIER_PASSWORD
+php artisan tinker --execute='
+$password = env("QA_CASHIER_PASSWORD");
+if (blank($password)) { fwrite(STDERR, "QA_CASHIER_PASSWORD is not set; aborting.\n"); exit(1); }
+$user = App\Models\User::query()->firstOrCreate(
+    ["email" => "qa-cashier@porsca.test"],
+    ["name" => "QA Cashier", "password" => $password,
+     "role" => App\Models\User::ROLE_CASHIER, "is_active" => true],
+);
+$user->forceFill(["role" => App\Models\User::ROLE_CASHIER, "is_active" => true])->save();
+echo $user->wasRecentlyCreated ? "QA cashier created\n" : "QA cashier already present; password unchanged\n";
+'
+unset QA_CASHIER_PASSWORD
+```
+
+The command is safe to repeat within a cycle; it does not reset an existing cashier password. Verify both accounts can sign in and exercise the appropriate role checks. In the cycle record, retain account/role labels only—never passwords or bearer tokens.
+
 A reset is allowed only to begin a new cycle. A changed stable origin, API commit, mobile commit, seed, or PayMongo context starts a new cycle record.
 
 ## Defects
