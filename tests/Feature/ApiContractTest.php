@@ -52,6 +52,16 @@ class ApiContractTest extends TestCase
             ->assertJsonPath('data.commit', $commit);
     }
 
+    public function test_health_reports_unknown_when_no_deployed_commit_is_recorded(): void
+    {
+        foreach ([null, ''] as $commit) {
+            config(['app.commit' => $commit]);
+
+            $this->getJson('/api/v1/health')->assertOk()
+                ->assertJsonPath('data.commit', 'unknown');
+        }
+    }
+
     public function test_protected_resources_require_a_bearer_token(): void
     {
         $this->getJson('/api/v1/products')->assertUnauthorized();
