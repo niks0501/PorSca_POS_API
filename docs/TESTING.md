@@ -36,7 +36,7 @@ php artisan test --filter='(CheckoutAuthorityTest|CheckoutAuthorityConcurrencyTe
 
 These tests rebuild/truncate only the selected test database. The v3 concurrency tests issue real HTTP requests in independent processes under `REPEATABLE READ`, pause behind a parent-held product row lock, assert neither worker acquired the lock early, and release them to race. Different Cash keys cannot finalize twice; duplicate Cash keys return the same receipt; duplicate QR keys create one attempt/hold; duplicate paid refreshes create one sale/ledger/deduction; concurrent case updates accept one version and reject the stale writer. Provider I/O is asserted outside transactions. Unlike the existing settlement suite's exact `information_schema.innodb_trx` wait observer, this v3 barrier does not need a global MySQL PROCESS privilege.
 
-See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and fail-closed provider gates. The retained Newman collection exercises the v2 compatibility surface; new v3 proof is in Feature tests, not an assertion that the old collection covers these resources.
+See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and fail-closed provider gates. The retained Newman collection exercises both the v2 compatibility surface and the v3 durable local workflow; exhaustive v3 proof remains in Feature tests.
 
 ## MySQL concurrency regression
 
@@ -50,7 +50,7 @@ These tests rebuild the selected database; never point them at staging or produc
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: admin login, health, product creation/editing/stock update, products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, checkout, payment read, signed practice webhook rejection of unsupported settlement, payment read again, sales, and transactions.
+The collection runs the HTTP contract in order: admin login, managed-product creation/editing/stock update, cash sale with idempotent retry and receipt read, health, catalog products, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook, payment read again, sales, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote, pending attempt, and held reservation.
 
 Required tools:
 
@@ -80,7 +80,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: Newman reports 25 requests and all assertions passing. The first request signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`, which the later requests use. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
+Success: Newman reports 40 requests and all assertions passing. The first request signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`, which the later requests use. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `admin_email`, `admin_password`, and `webhook_secret` from the staging machine's environment. Never commit the copy:
 
