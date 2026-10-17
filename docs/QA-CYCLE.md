@@ -35,7 +35,7 @@ Record full SHAs, not branch names alone. Record the seed version printed by `qa
 1. A human release owner chooses the cycle ID and QA owner; this decision starts the formal cycle preparation.
 2. Confirm `staging` contains the intended API commit and the paired mobile build identifies its exact commit.
 3. Confirm the stable API URL returns `environment: staging`, `database: ok`, and `paymongo_mode: sandbox`.
-4. Run `php artisan qa:reset --force` before testing and record `qa-baseline-2026-10`. This version replaces `qa-baseline-2026-02` because the seeded sample barcode values changed.
+4. Run `php artisan qa:reset --force` before testing and record `qa-baseline-2026-10`. This version replaces `qa-baseline-2026-02` because the seeded sample barcode values changed. The reset exits non-zero without printing the baseline when no active admin is seeded; set `ADMIN_EMAIL` and `ADMIN_PASSWORD`, re-run it, and do not continue the cycle until it succeeds.
 5. Run `composer verify` and the Postman collection. Keep their artifacts.
 6. Test the mobile flow against the same URL and data.
 7. Do not reset, reseed, or patch the database during the cycle.

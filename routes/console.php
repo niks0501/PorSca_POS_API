@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -31,6 +32,17 @@ Artisan::command('qa:reset {--force}', function () {
 
     if ($status !== 0) {
         return $status;
+    }
+
+    $activeAdminSeeded = User::query()
+        ->where('role', User::ROLE_ADMIN)
+        ->where('is_active', true)
+        ->exists();
+
+    if (! $activeAdminSeeded) {
+        $this->error('No active admin account was seeded. Set ADMIN_EMAIL and ADMIN_PASSWORD, then re-run qa:reset --force.');
+
+        return 1;
     }
 
     $this->info('Staging reset to '.DatabaseSeeder::BASELINE_VERSION.'.');
