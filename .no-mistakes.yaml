@@ -1,4 +1,7 @@
 
+pr:
+  base_branch: development
+
 protected_paths:
   - ".no-mistakes.yaml"
   - "database/migrations/**"
