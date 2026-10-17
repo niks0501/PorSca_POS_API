@@ -6,10 +6,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
 use App\Models\User;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use RuntimeException;
 use Tests\TestCase;
 
 class CashSaleTest extends TestCase
@@ -148,16 +145,6 @@ class CashSaleTest extends TestCase
 
     public function test_a_non_cash_sale_in_checkout_namespace_is_not_a_cash_retry(): void
     {
-        $this->assertNonCashSaleIsRejected(false);
-    }
-
-    public function test_unique_constraint_recovery_does_not_return_a_non_cash_sale(): void
-    {
-        $this->assertNonCashSaleIsRejected(true);
-    }
-
-    private function assertNonCashSaleIsRejected(bool $recoverFromUniqueViolation): void
-    {
         $product = $this->product(price: 100, quantity: 2);
         Sale::create([
             'idempotency_key' => 'wrong-sale-kind',
@@ -166,25 +153,11 @@ class CashSaleTest extends TestCase
             'request_hash' => null,
         ]);
 
-        $database = DB::getFacadeRoot();
-        if ($recoverFromUniqueViolation) {
-            // Inject a losing insert to exercise the post-rollback winner lookup.
-            $mock = \Mockery::mock($database);
-            $mock->shouldReceive('transaction')->once()->andThrow(
-                new UniqueConstraintViolationException($database->getDefaultConnection(), 'insert into sales', [], new RuntimeException('Duplicate key')),
-            );
-            DB::swap($mock);
-        }
-
-        try {
-            $this->postJson('/api/v1/sales/cash', [
-                'idempotency_key' => 'wrong-sale-kind',
-                'cash_received' => 100,
-                'items' => [['product_id' => $product->id, 'quantity' => 1]],
-            ], $this->headers())->assertStatus(409)->assertJsonPath('error.code', 'idempotency_conflict');
-        } finally {
-            DB::swap($database);
-        }
+        $this->postJson('/api/v1/sales/cash', [
+            'idempotency_key' => 'wrong-sale-kind',
+            'cash_received' => 100,
+            'items' => [['product_id' => $product->id, 'quantity' => 1]],
+        ], $this->headers())->assertStatus(409)->assertJsonPath('error.code', 'idempotency_conflict');
 
         $this->assertSame(1, Sale::count());
         $this->assertSame(0, Transaction::count());

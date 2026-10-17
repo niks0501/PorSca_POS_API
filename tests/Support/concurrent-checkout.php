@@ -1,9 +1,9 @@
 <?php
 
 use App\Exceptions\InsufficientStock;
+use App\Models\Payment;
 use App\Services\CheckoutService;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 
 require __DIR__.'/../../vendor/autoload.php';
@@ -19,9 +19,11 @@ config([
 ]);
 DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
 DB::statement('SET SESSION innodb_lock_wait_timeout = 10');
-DB::listen(function (QueryExecuted $query): void {
-    if (DB::transactionLevel() === 1 && str_contains($query->sql, 'from `sales`')) {
-        // This consistent read fixes B's snapshot before A commits a reservation.
+$snapshotReady = false;
+DB::listen(function () use (&$snapshotReady): void {
+    if (! $snapshotReady && DB::transactionLevel() === 1) {
+        $snapshotReady = true;
+        Payment::query()->count();
         fwrite(STDOUT, "snapshot-ready\n");
         fflush(STDOUT);
     }
