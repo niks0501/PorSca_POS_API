@@ -49,6 +49,40 @@ function scrubText(string $text, array $secrets): string
     ) ?? throw new RuntimeException('Could not scrub report text.');
 }
 
+/** @return list<int>|null */
+function bufferBytes(mixed $value): ?array
+{
+    if (! is_array($value)
+        || ($value['type'] ?? null) !== 'Buffer'
+        || ! is_array($value['data'] ?? null)) {
+        return null;
+    }
+
+    $bytes = [];
+
+    foreach ($value['data'] as $byte) {
+        if (! is_int($byte) || $byte < 0 || $byte > 255) {
+            return null;
+        }
+
+        $bytes[] = $byte;
+    }
+
+    return $bytes;
+}
+
+/** @param list<int> $bytes */
+function bufferToText(array $bytes): string
+{
+    return pack('C*', ...$bytes);
+}
+
+/** @param list<int> $bytes */
+function textToBuffer(string $text): array
+{
+    return array_values(unpack('C*', $text) ?: []);
+}
+
 /** @param list<string> $secrets */
 function scrubValue(mixed $value, array $secrets): mixed
 {
@@ -58,6 +92,15 @@ function scrubValue(mixed $value, array $secrets): mixed
 
     if (! is_array($value)) {
         return $value;
+    }
+
+    $bytes = bufferBytes($value);
+
+    if ($bytes !== null) {
+        return [
+            'type' => 'Buffer',
+            'data' => textToBuffer(scrubText(bufferToText($bytes), $secrets)),
+        ];
     }
 
     $sensitiveEntry = isset($value['key'])
@@ -95,6 +138,32 @@ function assertStructurallyRedacted(mixed $value): void
         }
 
         assertStructurallyRedacted($child);
+    }
+}
+
+/** @param list<string> $secrets */
+function assertValueHasNoLeaks(mixed $value, array $secrets): void
+{
+    if (is_string($value)) {
+        assertNoLeaks($value, $secrets);
+
+        return;
+    }
+
+    if (! is_array($value)) {
+        return;
+    }
+
+    $bytes = bufferBytes($value);
+
+    if ($bytes !== null) {
+        assertNoLeaks(bufferToText($bytes), $secrets);
+
+        return;
+    }
+
+    foreach ($value as $child) {
+        assertValueHasNoLeaks($child, $secrets);
     }
 }
 
@@ -299,6 +368,7 @@ function checkDirectory(string $directory, array $secrets): void
             }
 
             assertStructurallyRedacted($report);
+            assertValueHasNoLeaks($report, $secrets);
         }
     }
 }
