@@ -18,7 +18,7 @@ composer verify
 
 Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`.
 
-Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
+Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites. Read it before installing dependencies or troubleshooting unavailable test tools.
 
 ## Documentation map
 
@@ -49,6 +49,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites.
 
 A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`. Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
 Before opening the PR, check its final diff for the corresponding root-guidance update; running the initializer is not a freshness check.
+Check the staged diff before committing too: QA runbooks are workflow changes, and QR payload changes are contract changes even when only a gateway and its tests are touched.
 
 ## Maintaining this file
 
