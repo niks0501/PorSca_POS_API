@@ -99,6 +99,8 @@ Two collection safeguards protect the run:
 - A collection-level pre-request guard aborts before any stateful request fires when `admin_password`, `cashier_password`, or `webhook_secret` still hold a placeholder value, or when no login token was captured.
 - The Health request runs first as an environment gate: it asserts `environment === {{expected_environment}}` (`local`), `database === 'ok'`, and `paymongo_mode === {{expected_paymongo_mode}}` (`sandbox`), and stops the whole run on mismatch so a dev-vs-staging mixup ends at Health with zero stateful side effects.
 
+> **Known limitation:** the Health gate proves environment, database reachability, and sandbox mode only. It does not prove database identity: a local API pointed at a foreign database still passes the gate, and the run then proceeds to stateful writes against that data. Verify database identity manually (for example `DB_DATABASE` and `DB_HOST` in the API's `.env`) before reseeding or any stateful run.
+
 The managed-product barcode is generated per run (timestamp-suffixed, captured into `{{managed_product_barcode}}` with the edit-step value in `{{managed_product_barcode_edit}}`), so back-to-back runs with a reseed between them never collide on the barcode unique rule.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `admin_email`, `admin_password`, `cashier_email`, `cashier_password`, and `webhook_secret` from the staging machine's environment. Never commit the copy. Create the standing cashier on the staging host with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` before the run:
@@ -118,7 +120,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
 
 (Override `--env-var expected_paymongo_mode=...` as well if the target host ever reports a non-sandbox mode.)
 
-Success: every request and assertion passes against the same stable staging URL. Run Health first and compare its `environment`/`commit` against the cycle record's approved URL/SHA before letting the rest of the run proceed; the collection gate stops the run at Health only on environment, PayMongo mode, or database mismatch, so the commit/SHA comparison stays manual. Run this only with the cycle's approved data. Do not reset staging during the run.
+Success: every request and assertion passes against the same stable staging URL. Run Health first and compare its `environment`/`commit` against the cycle record's approved URL/SHA before letting the rest of the run proceed; the collection gate stops the run at Health only on environment, PayMongo mode, or database unreachability, and it does not verify database identity, so the commit/SHA comparison stays manual. Run this only with the cycle's approved data. Do not reset staging during the run.
 
 ## Evidence
 
