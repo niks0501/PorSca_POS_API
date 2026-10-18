@@ -78,11 +78,12 @@ Reseed the local database so the run starts from the documented baseline. The co
 php artisan migrate:fresh --seed
 ```
 
-Success: the seeder reports the admin user and the four seeded products. This is the required precondition for every local Newman run; never run Newman twice against the same database without reseeding first. (Staging uses the symmetric `php artisan qa:reset --force` on the staging machine, and only with the cycle's approved data.)
+Success: every migration runs and `Database\Seeders\DatabaseSeeder ... DONE` is printed. This is the required precondition for every local Newman run; never run Newman twice against the same database without reseeding first. (Staging uses the symmetric `php artisan qa:reset --force` on the staging machine, and only with the cycle's approved data.)
 
-Start the API in another terminal and run (ADMIN_PASSWORD comes from your local `.env`; the collection refuses placeholder secrets):
+Start the API in another terminal. Export the admin password from your local `.env`, then run (the collection refuses placeholder secrets):
 
 ```sh
+export ADMIN_PASSWORD="$(sed -n 's/^ADMIN_PASSWORD=//p' .env)"
 npx newman run postman/PorSca-API.postman_collection.json \
   -e postman/PorSca-API.postman_environment.json \
   --env-var admin_password="$ADMIN_PASSWORD" \
@@ -117,7 +118,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
 
 (Override `--env-var expected_paymongo_mode=...` as well if the target host ever reports a non-sandbox mode.)
 
-Success: every request and assertion passes against the same stable staging URL. Run Health first and compare its `environment`/`commit` against the cycle record's approved URL/SHA before letting the rest of the run proceed; the collection gate enforces this automatically and stops the run at Health on mismatch. Run this only with the cycle's approved data. Do not reset staging during the run.
+Success: every request and assertion passes against the same stable staging URL. Run Health first and compare its `environment`/`commit` against the cycle record's approved URL/SHA before letting the rest of the run proceed; the collection gate stops the run at Health only on environment, PayMongo mode, or database mismatch, so the commit/SHA comparison stays manual. Run this only with the cycle's approved data. Do not reset staging during the run.
 
 ## Evidence
 

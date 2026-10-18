@@ -15,12 +15,13 @@
     "var webhookSecret = pm.environment.get('webhook_secret') || '';",
     "var token = pm.environment.get('token') || '';",
     "function isPlaceholder(v) { return !v || v.indexOf('<set-from') !== -1 || v.indexOf('<stable-') !== -1 || v.indexOf('CHANGE_ME') !== -1; }",
+    "function haltRun() { postman.setNextRequest(null); if (pm.execution && typeof pm.execution.skipRequest === 'function') { pm.execution.skipRequest(); } }",
     "if (isPlaceholder(adminPassword) || isPlaceholder(cashierPassword) || isPlaceholder(webhookSecret)) {",
     "  pm.test('env guard: admin_password, cashier_password and webhook_secret must be real values, not placeholders', function () { throw new Error('Refusing to run with placeholder admin_password/cashier_password/webhook_secret. See docs/TESTING.md.'); });",
-    "  postman.setNextRequest(null);",
+    "  haltRun();",
     "} else if (name !== 'Auth - Login as admin' && name !== 'Health' && !token) {",
     "  pm.test('env guard: missing auth token before stateful requests', function () { throw new Error('No auth token captured from login; refusing stateful request ' + name + '.'); });",
-    "  postman.setNextRequest(null);",
+    "  haltRun();",
     "}"
   ]}}],
   "item": [
