@@ -28,7 +28,7 @@ function configuredSecrets(): array
 }
 
 /** @param list<string> $secrets */
-function scrubText(string $text, array $secrets): string
+function scrubPlainText(string $text, array $secrets): string
 {
     if ($secrets !== []) {
         $text = str_replace($secrets, REDACTED, $text);
@@ -47,6 +47,49 @@ function scrubText(string $text, array $secrets): string
         ],
         $text,
     ) ?? throw new RuntimeException('Could not scrub report text.');
+}
+
+function decodeBase64Candidate(string $candidate): ?string
+{
+    $remainder = strlen($candidate) % 4;
+
+    if ($remainder === 1) {
+        return null;
+    }
+
+    if ($remainder !== 0) {
+        $candidate .= str_repeat('=', 4 - $remainder);
+    }
+
+    $decoded = base64_decode($candidate, true);
+
+    if ($decoded === false || $decoded === '' || preg_match('//u', $decoded) !== 1) {
+        return null;
+    }
+
+    return $decoded;
+}
+
+/** @param list<string> $secrets */
+function scrubText(string $text, array $secrets): string
+{
+    $text = scrubPlainText($text, $secrets);
+
+    return preg_replace_callback(
+        '#(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{16,}={0,2}(?![A-Za-z0-9+/=])#',
+        static function (array $match) use ($secrets): string {
+            $decoded = decodeBase64Candidate($match[0]);
+
+            if ($decoded === null) {
+                return $match[0];
+            }
+
+            $scrubbed = scrubPlainText($decoded, $secrets);
+
+            return $scrubbed === $decoded ? $match[0] : base64_encode($scrubbed);
+        },
+        $text,
+    ) ?? throw new RuntimeException('Could not scrub base64-encoded report text.');
 }
 
 /** @return list<int>|null */
@@ -168,7 +211,7 @@ function assertValueHasNoLeaks(mixed $value, array $secrets): void
 }
 
 /** @param list<string> $secrets */
-function assertNoLeaks(string $text, array $secrets): void
+function assertPlainNoLeaks(string $text, array $secrets): void
 {
     foreach ($secrets as $secret) {
         if (str_contains($text, $secret)) {
@@ -183,6 +226,26 @@ function assertNoLeaks(string $text, array $secrets): void
     ] as $pattern) {
         if (preg_match($pattern, $text) === 1) {
             throw new RuntimeException('A token-shaped value or webhook signature remains in a report.');
+        }
+    }
+}
+
+/** @param list<string> $secrets */
+function assertNoLeaks(string $text, array $secrets): void
+{
+    assertPlainNoLeaks($text, $secrets);
+
+    preg_match_all(
+        '#(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{16,}={0,2}(?![A-Za-z0-9+/=])#',
+        $text,
+        $matches,
+    );
+
+    foreach ($matches[0] ?? [] as $candidate) {
+        $decoded = decodeBase64Candidate($candidate);
+
+        if ($decoded !== null) {
+            assertPlainNoLeaks($decoded, $secrets);
         }
     }
 }

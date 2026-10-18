@@ -77,12 +77,54 @@ class NewmanReportSanitizerTest extends TestCase
         $this->assertStringContainsString('token-shaped value', $check->getErrorOutput());
     }
 
-    private function writeBufferReport(string $token, string $password): void
+    public function test_base64_encoded_buffer_tokens_and_credentials_are_scrubbed_before_publication(): void
+    {
+        $token = '2|'.str_repeat('Rr4Tt5Yy6Uu7Ii8', 4);
+        $password = 'base64-only-secret-456';
+
+        $this->writeBufferReport($token, $password, base64EncodeBody: true);
+
+        $process = $this->runScript([
+            $this->directory.'/newman.json',
+            $this->directory.'/summary.md',
+            $this->directory,
+        ], ['QA_CASHIER_PASSWORD' => $password]);
+
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+
+        $body = $this->decodedBase64Stream($this->directory.'/newman.json');
+
+        $this->assertStringNotContainsString($token, $body);
+        $this->assertStringNotContainsString($password, $body);
+        $this->assertStringContainsString('[REDACTED]', $body);
+
+        $check = $this->runScript(['--check', $this->directory]);
+
+        $this->assertSame(0, $check->getExitCode(), $check->getErrorOutput());
+    }
+
+    public function test_leak_check_fails_closed_on_a_base64_encoded_buffer_token(): void
+    {
+        $token = '2|'.str_repeat('Mm5Nn4Bb3Vv2Cc1', 4);
+
+        $this->writeBufferReport($token, 'unused-password', base64EncodeBody: true);
+
+        $check = $this->runScript(['--check', $this->directory]);
+
+        $this->assertNotSame(0, $check->getExitCode());
+        $this->assertStringContainsString('token-shaped value', $check->getErrorOutput());
+    }
+
+    private function writeBufferReport(string $token, string $password, bool $base64EncodeBody = false): void
     {
         $body = json_encode([
             'token' => $token,
             'password' => $password,
         ], JSON_THROW_ON_ERROR);
+
+        if ($base64EncodeBody) {
+            $body = base64_encode($body);
+        }
 
         $report = [
             'collection' => ['info' => ['name' => 'Sanitizer regression']],
@@ -125,6 +167,15 @@ class NewmanReportSanitizerTest extends TestCase
         $bytes = $report['run']['executions'][0]['response']['stream']['data'];
 
         return pack('C*', ...$bytes);
+    }
+
+    private function decodedBase64Stream(string $path): string
+    {
+        $decoded = base64_decode($this->decodedStream($path), true);
+
+        $this->assertNotFalse($decoded, 'The published response body was not valid base64.');
+
+        return $decoded;
     }
 
     /**
