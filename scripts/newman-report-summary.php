@@ -329,6 +329,15 @@ function safeMarkdownUrl(mixed $value): ?string
     return $value;
 }
 
+function normalizedArtifactDigest(string $digest): ?string
+{
+    if (preg_match('/\\A(?:sha256:)?([a-f0-9]{64})\\z/i', $digest, $matches) !== 1) {
+        return null;
+    }
+
+    return 'sha256:'.strtolower($matches[1]);
+}
+
 function boundedSummary(string $summary): string
 {
     if (strlen($summary) <= SUMMARY_BYTE_LIMIT) {
@@ -569,8 +578,9 @@ function createSummary(array $report, string $runUrl = '', string $artifactUrl =
 
     $runLink = safeMarkdownUrl($runUrl);
     $artifactLink = safeMarkdownUrl($artifactUrl);
+    $digest = normalizedArtifactDigest($artifactDigest);
 
-    if ($runLink !== null || $artifactLink !== null || preg_match('/\\Asha256:[a-f0-9]{64}\\z/i', $artifactDigest) === 1) {
+    if ($runLink !== null || $artifactLink !== null || $digest !== null) {
         $summary[] = '## Run evidence';
         $summary[] = '';
 
@@ -582,8 +592,8 @@ function createSummary(array $report, string $runUrl = '', string $artifactUrl =
             $summary[] = '[Download Newman reports artifact]('.$artifactLink.')';
         }
 
-        if (preg_match('/\\Asha256:[a-f0-9]{64}\\z/i', $artifactDigest) === 1) {
-            $summary[] = 'Artifact digest: `'.$artifactDigest.'`';
+        if ($digest !== null) {
+            $summary[] = 'Artifact digest: `'.$digest.'`';
         }
 
         $summary[] = '';

@@ -115,6 +115,42 @@ class NewmanReportSanitizerTest extends TestCase
         $this->assertStringContainsString('token-shaped value', $check->getErrorOutput());
     }
 
+    public function test_with_links_renders_bare_and_sha256_prefixed_artifact_digests(): void
+    {
+        $digest = hash('sha256', 'newman-reports');
+
+        file_put_contents(
+            $this->directory.'/newman.json',
+            json_encode([
+                'collection' => ['info' => ['name' => 'Digest rendering']],
+                'run' => [
+                    'stats' => [
+                        'requests' => ['total' => 1, 'failed' => 0],
+                        'assertions' => ['total' => 1, 'failed' => 0],
+                    ],
+                    'failures' => [],
+                    'executions' => [],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
+        );
+
+        foreach ([$digest, 'sha256:'.$digest] as $artifactDigest) {
+            $process = $this->runScript([
+                '--with-links',
+                $this->directory,
+                'https://github.com/alfredc-12/PorSca_POS/actions/runs/1',
+                'https://github.com/alfredc-12/PorSca_POS/actions/runs/1/artifacts/2',
+                $artifactDigest,
+            ]);
+
+            $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+
+            $summary = (string) file_get_contents($this->directory.'/summary.md');
+
+            $this->assertStringContainsString('Artifact digest: `sha256:'.$digest.'`', $summary);
+        }
+    }
+
     private function writeBufferReport(string $token, string $password, bool $base64EncodeBody = false): void
     {
         $body = json_encode([
