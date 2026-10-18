@@ -72,7 +72,7 @@ php artisan config:clear
 
 Success: `php artisan config:clear` says the configuration cache was cleared and `.env` has a new local-only webhook value.
 
-Reseed the local database so the run starts from the documented baseline. The collection asserts absolute seed state (managed-product stock 8 → 11 → 9, cash totals, seeded catalog), so a stale database fails by design:
+Reseed the local database so the run starts from the documented baseline. The run mutates data (sales, payments, stock holds), so a database carried over from an earlier run is no longer the documented baseline:
 
 ```sh
 php artisan migrate:fresh --seed
@@ -101,7 +101,7 @@ Two collection safeguards protect the run:
 
 > **Known limitation:** the Health gate proves environment, database reachability, and sandbox mode only. It does not prove database identity: a local API pointed at a foreign database still passes the gate, and the run then proceeds to stateful writes against that data. Verify database identity manually (for example `DB_DATABASE` and `DB_HOST` in the API's `.env`) before reseeding or any stateful run.
 
-The managed-product barcode is generated per run (timestamp-suffixed, captured into `{{managed_product_barcode}}` with the edit-step value in `{{managed_product_barcode_edit}}`), so back-to-back runs with a reseed between them never collide on the barcode unique rule.
+The managed-product barcode is generated per run (timestamp-suffixed, captured into `{{managed_product_barcode}}` with the edit-step value in `{{managed_product_barcode_edit}}`), so back-to-back runs with a reseed between them never collide on the barcode unique rule. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `admin_email`, `admin_password`, `cashier_email`, `cashier_password`, and `webhook_secret` from the staging machine's environment. Never commit the copy. Create the standing cashier on the staging host with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` before the run:
 
@@ -120,7 +120,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
 
 (Override `--env-var expected_paymongo_mode=...` as well if the target host ever reports a non-sandbox mode.)
 
-Success: every request and assertion passes against the same stable staging URL. Run Health first and compare its `environment`/`commit` against the cycle record's approved URL/SHA before letting the rest of the run proceed; the collection gate stops the run at Health only on environment, PayMongo mode, or database unreachability, and it does not verify database identity, so the commit/SHA comparison stays manual. Run this only with the cycle's approved data. Do not reset staging during the run.
+Success: every request and assertion passes against the same stable staging URL. The collection gate stops the run at Health only on environment, PayMongo mode, or database unreachability; it does not verify database identity and does not compare the deployed `commit`, so confirm the approved URL and full SHA per [STAGING.md](STAGING.md) before the run. Run this only with the cycle's approved data. Do not reset staging during the run.
 
 ## Evidence
 
