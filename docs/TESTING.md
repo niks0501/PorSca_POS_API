@@ -56,7 +56,7 @@ The collection runs the HTTP contract in order: health environment gate, admin l
 
 `.github/workflows/newman.yml` runs this collection on pull requests and pushes to `main`, `staging`, and `development`, and on manual dispatch. It provisions a fresh SQLite database and cashier, generates and masks per-run credentials, starts a local API, and runs the pinned Newman and htmlextra versions. The job uploads sanitized JSON, HTML, JUnit, CLI, and Markdown summary reports for 14 days, including when Newman reports a collection failure. Sensitive JSON fields and credential/token/signature strings are scrubbed before publication; a fail-closed leak check prevents unverified artifacts from being published. Because this repository is public, do not add unreviewed report files or credentials to artifacts.
 
-To create the same sanitized reports locally, complete the fresh-database, API, and cashier setup below, export `ADMIN_PASSWORD`, `QA_CASHIER_PASSWORD`, and `PAYMONGO_WEBHOOK_SECRET`, then run:
+To create the same sanitized reports locally, complete the fresh-database, API, and cashier setup below, export `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `QA_CASHIER_PASSWORD`, and `PAYMONGO_WEBHOOK_SECRET`, then run:
 
 ```sh
 bash scripts/newman-report.sh
@@ -92,12 +92,14 @@ php artisan migrate:fresh --seed
 
 Success: every migration runs and `Database\Seeders\DatabaseSeeder ... DONE` is printed. This is the required precondition for every local Newman run; never run Newman twice against the same database without reseeding first. (Staging uses the symmetric `php artisan qa:reset --force` on the staging machine, and only with the cycle's approved data.)
 
-Start the API in another terminal. Export the admin password from your local `.env`, then run (the collection refuses placeholder secrets):
+Start the API in another terminal. Export the admin email and password from your local `.env`, then run (the collection refuses placeholder secrets):
 
 ```sh
+export ADMIN_EMAIL="$(sed -n 's/^ADMIN_EMAIL=//p' .env)"
 export ADMIN_PASSWORD="$(sed -n 's/^ADMIN_PASSWORD=//p' .env)"
 npx newman run postman/PorSca-API.postman_collection.json \
   -e postman/PorSca-API.postman_environment.json \
+  --env-var admin_email="$ADMIN_EMAIL" \
   --env-var admin_password="$ADMIN_PASSWORD" \
   --env-var cashier_email=qa-cashier@porsca.test \
   --env-var cashier_password="$QA_CASHIER_PASSWORD" \

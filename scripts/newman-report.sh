@@ -8,7 +8,7 @@ OUT_DIR="$ROOT_DIR/reports/newman"
 REPORTER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/porsca-newman-report.XXXXXX")"
 trap 'rm -rf -- "$REPORTER_DIR"' EXIT
 
-for name in ADMIN_PASSWORD QA_CASHIER_PASSWORD PAYMONGO_WEBHOOK_SECRET; do
+for name in ADMIN_EMAIL ADMIN_PASSWORD QA_CASHIER_PASSWORD PAYMONGO_WEBHOOK_SECRET; do
     if [[ -z "${!name:-}" ]]; then
         printf 'Required environment variable %s is not set.\n' "$name" >&2
         exit 2
@@ -32,6 +32,7 @@ if npx --yes \
     --package newman-reporter-htmlextra@1.23.1 \
     newman run postman/PorSca-API.postman_collection.json \
     -e postman/PorSca-API.postman_environment.json \
+    --env-var "admin_email=$ADMIN_EMAIL" \
     --env-var "admin_password=$ADMIN_PASSWORD" \
     --env-var cashier_email=qa-cashier@porsca.test \
     --env-var "cashier_password=$QA_CASHIER_PASSWORD" \

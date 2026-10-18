@@ -264,7 +264,7 @@ function createSummary(array $report): string
     }
 
     $summary[] = '';
-    $summary[] = 'Credentials, bearer tokens, and webhook signatures were scrubbed and checked before publication.';
+    $summary[] = 'Credentials, authorization tokens, and webhook signatures were scrubbed and checked before publication.';
 
     return implode("\n", $summary)."\n";
 }
