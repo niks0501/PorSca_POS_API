@@ -148,6 +148,7 @@ jobs:
         run: bash scripts/newman-report.sh
 
       - name: Upload Newman reports
+        id: newman-reports
         if: always()
         uses: actions/upload-artifact@v6
         with:
@@ -159,9 +160,21 @@ jobs:
       - name: Publish run summary
         if: always()
         shell: bash
+        env:
+          NEWMAN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEWMAN_ARTIFACT_URL: ${{ steps.newman-reports.outputs.artifact-url }}
+          NEWMAN_ARTIFACT_DIGEST: ${{ steps.newman-reports.outputs.artifact-digest }}
         run: |
-          if [[ -f reports/newman/summary.md ]]; then
+          if [[ -f reports/newman/summary.md && -f reports/newman/newman.json ]]; then
+            php scripts/newman-report-summary.php --with-links reports/newman \
+              "$NEWMAN_RUN_URL" "$NEWMAN_ARTIFACT_URL" "$NEWMAN_ARTIFACT_DIGEST"
             cat reports/newman/summary.md >> "$GITHUB_STEP_SUMMARY"
           else
             printf 'Newman did not produce a sanitized report. See the job result for the failure.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          summary_bytes=$(wc -c < "$GITHUB_STEP_SUMMARY")
+          if (( summary_bytes > 1048576 )); then
+            printf 'The Newman step summary exceeds GitHub’s 1 MiB per-step limit.\n' >&2
+            exit 1
           fi
