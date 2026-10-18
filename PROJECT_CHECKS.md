@@ -10,7 +10,7 @@
 
 - Test suite and canonical repository check: `composer verify` (runs `php artisan config:clear`, the Laravel test suite, and Pint)
 - Build: no frontend or separate build command is configured here
-- Integration/API contract: PHPUnit Feature tests cover the API contract. `.github/workflows/newman.yml` runs the pinned Newman collection against a fresh disposable SQLite API and uploads sanitized reports for 14 days. Reproduce locally with `bash scripts/newman-report.sh` after the environment and cashier setup in `docs/TESTING.md`.
+- Integration/API contract: PHPUnit Feature tests cover the API contract. `.github/workflows/newman.yml` runs the retained Newman collection with the pinned toolchain against a fresh disposable SQLite API and uploads sanitized reports for 14 days. Reproduce locally with `bash scripts/newman-report.sh` after the environment and cashier setup in `docs/TESTING.md`.
 - E2E: no browser/device E2E setup exists in this API repository; it is not a routine check for API-only changes
 
 ## Manual verification

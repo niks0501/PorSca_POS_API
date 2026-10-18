@@ -179,8 +179,8 @@ class NewmanReportSanitizerTest extends TestCase
     }
 
     /**
-     * @param list<string> $arguments
-     * @param array<string, string> $environment
+     * @param  list<string>  $arguments
+     * @param  array<string, string>  $environment
      */
     private function runScript(array $arguments, array $environment = []): Process
     {

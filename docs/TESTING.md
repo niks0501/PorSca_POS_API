@@ -54,7 +54,7 @@ The collection runs the HTTP contract in order: health environment gate, admin l
 
 ### Automated report
 
-`.github/workflows/newman.yml` runs this collection on pull requests and pushes to `main`, `staging`, and `development`, and on manual dispatch. It provisions a fresh SQLite database and cashier, generates and masks per-run credentials, starts a local API, and runs the pinned Newman and htmlextra versions. The job uploads sanitized JSON, HTML, JUnit, CLI, and Markdown summary reports for 14 days, including when Newman reports a collection failure. Sensitive JSON fields and credential/token/signature strings are scrubbed before publication; a fail-closed leak check prevents unverified artifacts from being published. Because this repository is public, do not add unreviewed report files or credentials to artifacts.
+`.github/workflows/newman.yml` runs this collection on pull requests and pushes to `main`, `staging`, and `development`, and on manual dispatch. It provisions a fresh SQLite database and cashier, generates and masks per-run credentials, starts a local API, waits for its health check, and runs the Newman and htmlextra versions pinned by `scripts/newman-report.sh`. The job uploads sanitized JSON, HTML, JUnit, CLI, and Markdown summary reports for 14 days, including when Newman reports a collection failure, and appends the Markdown summary to the workflow job summary. The sanitizer structurally redacts sensitive JSON fields and scrubs configured credentials, bearer and bare token-shaped values, and webhook timestamp and signature strings from every artifact, including base64- and Buffer-encoded response bodies. A fail-closed leak check prevents unverified artifacts from being published. Because this repository is public, do not add unreviewed report files or credentials to artifacts.
 
 To create the same sanitized reports locally, complete the fresh-database, API, and cashier setup below, export `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `QA_CASHIER_PASSWORD`, and `PAYMONGO_WEBHOOK_SECRET`, then run:
 
@@ -62,7 +62,7 @@ To create the same sanitized reports locally, complete the fresh-database, API, 
 bash scripts/newman-report.sh
 ```
 
-The script downloads the exact pinned Newman packages through `npx` and writes to the ignored `reports/newman/` directory. It targets the collection's local default URL; do not use this script against staging. It exits with Newman's result after sanitization, so a failed contract run still leaves safe reports for diagnosis.
+The script downloads the exact pinned Newman and htmlextra packages through `npx`, sanitizes and checks every artifact, and writes the results to the ignored `reports/newman/` directory. It targets the collection's local default URL; do not use this script against staging. It exits with Newman's result after sanitization, so a failed contract run still leaves safe reports for diagnosis.
 
 Required tools:
 
