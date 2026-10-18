@@ -10,12 +10,12 @@
 
 - Test suite and canonical repository check: `composer verify` (runs `php artisan config:clear`, the Laravel test suite, and Pint)
 - Build: no frontend or separate build command is configured here
-- Integration/API contract: PHPUnit feature tests cover the API contract. The Postman/Newman workflow is documented in `docs/TESTING.md` and requires its documented local environment and data setup.
+- Integration/API contract: PHPUnit Feature tests cover the API contract. `.github/workflows/newman.yml` runs the pinned Newman collection against a fresh disposable SQLite API and uploads sanitized reports for 14 days. Reproduce locally with `bash scripts/newman-report.sh` after the environment and cashier setup in `docs/TESTING.md`.
 - E2E: no browser/device E2E setup exists in this API repository; it is not a routine check for API-only changes
 
 ## Manual verification
 
-- Use the Postman/Newman workflow in `docs/TESTING.md` when an HTTP-level contract run is specifically needed.
+- Use `bash scripts/newman-report.sh` against a freshly seeded local API when a sanitized HTTP-level contract report is specifically needed; see `docs/TESTING.md` for prerequisites.
 - Follow `docs/QA-CYCLE.md` and `docs/STAGING.md` for formal release/staging verification; do not run those workflows as routine local checks.
 
 ## Database checks

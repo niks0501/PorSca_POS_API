@@ -8,7 +8,7 @@ From the repository root run:
 composer verify
 ```
 
-Success means all Laravel feature and unit tests pass, followed by a clean Pint check. CI runs this same command in `.github/workflows/api.yml`.
+Success means all Laravel feature and unit tests pass, followed by a clean Pint check. CI runs this same command in `.github/workflows/api.yml`; the separate `.github/workflows/newman.yml` workflow adds the HTTP-level collection run and sanitized report artifacts.
 
 The Laravel tests cover:
 
@@ -51,6 +51,18 @@ These tests rebuild the selected database; never point them at staging or produc
 ## Postman collection
 
 The collection runs the HTTP contract in order: health environment gate, admin login (also signing in the cashier once for the role checks), missing-token 401 on a catalog read, managed-product creation/editing/stock update, cash sale with idempotent retry and pinned total/cash/change echo, cashier-token 403 on product creation, cash-below-total 422 with a follow-up inventory read proving the rejected sale left stock at 7, unknown-product 422, catalog products with the seeded prices pinned, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook, payment read again, sales history with exactly one completed cash sale, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote math, pending attempt, held reservation, and the completed cash sale's total, cash received, and change.
+
+### Automated report
+
+`.github/workflows/newman.yml` runs this collection on pull requests and pushes to `main`, `staging`, and `development`, and on manual dispatch. It provisions a fresh SQLite database and cashier, generates and masks per-run credentials, starts a local API, and runs the pinned Newman and htmlextra versions. The job uploads sanitized JSON, HTML, JUnit, CLI, and Markdown summary reports for 14 days, including when Newman reports a collection failure. Sensitive JSON fields and credential/token/signature strings are scrubbed before publication; a fail-closed leak check prevents unverified artifacts from being published. Because this repository is public, do not add unreviewed report files or credentials to artifacts.
+
+To create the same sanitized reports locally, complete the fresh-database, API, and cashier setup below, export `ADMIN_PASSWORD`, `QA_CASHIER_PASSWORD`, and `PAYMONGO_WEBHOOK_SECRET`, then run:
+
+```sh
+bash scripts/newman-report.sh
+```
+
+The script downloads the exact pinned Newman packages through `npx` and writes to the ignored `reports/newman/` directory. It targets the collection's local default URL; do not use this script against staging. It exits with Newman's result after sanitization, so a failed contract run still leaves safe reports for diagnosis.
 
 Required tools:
 
