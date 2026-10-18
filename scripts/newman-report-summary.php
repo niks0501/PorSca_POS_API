@@ -263,7 +263,7 @@ function writeFile(string $path, string $contents): void
 
 function markdownCell(string $value): string
 {
-    $value = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $value = htmlspecialchars($value, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $value = strtr($value, [
         '\\' => '\\\\',
         '|' => '\\|',
@@ -462,7 +462,22 @@ function failureRows(array $report): array
 {
     $run = is_array($report['run'] ?? null) ? $report['run'] : [];
     $executions = is_array($run['executions'] ?? null) ? $run['executions'] : [];
+    $failures = is_array($run['failures'] ?? null) ? $run['failures'] : [];
+    $requestFailureMessages = [];
     $rows = [];
+
+    foreach ($failures as $failure) {
+        if (! is_array($failure) || ($failure['at'] ?? null) !== 'request') {
+            continue;
+        }
+
+        $source = is_array($failure['source'] ?? null) ? $failure['source'] : [];
+        $error = is_array($failure['error'] ?? null) ? $failure['error'] : [];
+
+        if (is_string($source['id'] ?? null) && is_string($error['message'] ?? null)) {
+            $requestFailureMessages[$source['id']] = $error['message'];
+        }
+    }
 
     foreach ($executions as $execution) {
         if (! is_array($execution)) {
@@ -486,17 +501,17 @@ function failureRows(array $report): array
         }
 
         if (! empty($execution['requestError'])) {
+            $item = is_array($execution['item'] ?? null) ? $execution['item'] : [];
+            $id = is_string($item['id'] ?? null) ? $item['id'] : '';
             $rows[] = [
                 'request' => $request,
                 'check' => 'HTTP request',
-                'message' => errorMessage($execution['requestError']),
+                'message' => $requestFailureMessages[$id] ?? errorMessage($execution['requestError']),
             ];
         }
     }
 
     if ($rows === []) {
-        $failures = is_array($run['failures'] ?? null) ? $run['failures'] : [];
-
         foreach ($failures as $failure) {
             if (! is_array($failure)) {
                 continue;
