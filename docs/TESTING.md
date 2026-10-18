@@ -50,7 +50,7 @@ These tests rebuild the selected database; never point them at staging or produc
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: admin login (also signing in the cashier once for the role checks), missing-token 401 on a catalog read, managed-product creation/editing/stock update, cash sale with idempotent retry and pinned total/cash/change echo, cashier-token 403 on product creation, cash-below-total 422 with a follow-up inventory read proving the rejected sale left stock at 7, unknown-product 422, health, catalog products with the seeded prices pinned, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook, payment read again, sales history with exactly one completed cash sale, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote math, pending attempt, held reservation, and the completed cash sale's total, cash received, and change.
+The collection runs the HTTP contract in order: health environment gate, admin login (also signing in the cashier once for the role checks), missing-token 401 on a catalog read, managed-product creation/editing/stock update, cash sale with idempotent retry and pinned total/cash/change echo, cashier-token 403 on product creation, cash-below-total 422 with a follow-up inventory read proving the rejected sale left stock at 7, unknown-product 422, catalog products with the seeded prices pinned, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook, payment read again, sales history with exactly one completed cash sale, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote math, pending attempt, held reservation, and the completed cash sale's total, cash received, and change.
 
 Required tools:
 
@@ -72,17 +72,36 @@ php artisan config:clear
 
 Success: `php artisan config:clear` says the configuration cache was cleared and `.env` has a new local-only webhook value.
 
-Start the API in another terminal and run:
+Reseed the local database so the run starts from the documented baseline. The run mutates data (sales, payments, stock holds), so a database carried over from an earlier run is no longer the documented baseline:
 
 ```sh
+php artisan migrate:fresh --seed
+```
+
+Success: every migration runs and `Database\Seeders\DatabaseSeeder ... DONE` is printed. This is the required precondition for every local Newman run; never run Newman twice against the same database without reseeding first. (Staging uses the symmetric `php artisan qa:reset --force` on the staging machine, and only with the cycle's approved data.)
+
+Start the API in another terminal. Export the admin password from your local `.env`, then run (the collection refuses placeholder secrets):
+
+```sh
+export ADMIN_PASSWORD="$(sed -n 's/^ADMIN_PASSWORD=//p' .env)"
 npx newman run postman/PorSca-API.postman_collection.json \
   -e postman/PorSca-API.postman_environment.json \
+  --env-var admin_password="$ADMIN_PASSWORD" \
   --env-var cashier_email=qa-cashier@porsca.test \
   --env-var cashier_password="$QA_CASHIER_PASSWORD" \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: all 44 collection requests and every assertion pass; Newman's summary counts 46 HTTP requests because the admin login and the insufficient-cash stock check each add a nested `pm.sendRequest`. The first request signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`; the same request also signs in with `cashier_email` and `cashier_password` and captures the cashier token into `{{cashier_token}}`. No cashier is seeded, so create the standing cashier with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` before the run. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, verifies invalid and duplicate webhook behavior, and pins the seeded prices, stock, and cash totals. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
+Success: all 44 collection requests and every assertion pass; Newman's summary counts 46 HTTP requests because the admin login and the insufficient-cash stock check each add a nested `pm.sendRequest`. The login request (second after the Health gate) signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`; the same request also signs in with `cashier_email` and `cashier_password` and captures the cashier token into `{{cashier_token}}`. No cashier is seeded, so create the standing cashier with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` (plus `ADMIN_PASSWORD` from your local `.env`) before the run. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, verifies invalid and duplicate webhook behavior, and pins the seeded prices, stock, and cash totals. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
+
+Two collection safeguards protect the run:
+
+- A collection-level pre-request guard aborts before any stateful request fires when `admin_password`, `cashier_password`, or `webhook_secret` still hold a placeholder value, or when no login token was captured.
+- The Health request runs first as an environment gate: it asserts `environment === {{expected_environment}}` (`local`), `database === 'ok'`, and `paymongo_mode === {{expected_paymongo_mode}}` (`sandbox`), and stops the whole run on mismatch so a dev-vs-staging mixup ends at Health with zero stateful side effects.
+
+> **Known limitation:** the Health gate proves environment, database reachability, and sandbox mode only. It does not prove database identity: a local API pointed at a foreign database still passes the gate, and the run then proceeds to stateful writes against that data. Verify database identity manually (for example `DB_DATABASE` and `DB_HOST` in the API's `.env`) before reseeding or any stateful run.
+
+The managed-product barcode is generated per run (timestamp-suffixed, captured into `{{managed_product_barcode}}` with the edit-step value in `{{managed_product_barcode_edit}}`), so back-to-back runs with a reseed between them never collide on the barcode unique rule. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, and verifies invalid and duplicate webhook behavior. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
 
 For staging, copy the environment file to a file outside git and override `base_url`, `admin_email`, `admin_password`, `cashier_email`, `cashier_password`, and `webhook_secret` from the staging machine's environment. Never commit the copy. Create the standing cashier on the staging host with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` before the run:
 
@@ -91,6 +110,7 @@ cp postman/PorSca-API.postman_environment.json /tmp/porsca-staging.postman_envir
 npx newman run postman/PorSca-API.postman_collection.json \
   -e /tmp/porsca-staging.postman_environment.json \
   --env-var base_url=https://<stable-api-host>/api/v1 \
+  --env-var expected_environment=staging \
   --env-var admin_email="$ADMIN_EMAIL" \
   --env-var admin_password="$ADMIN_PASSWORD" \
   --env-var cashier_email=qa-cashier@porsca.test \
@@ -98,7 +118,9 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: every request and assertion passes against the same stable staging URL. Run this only with the cycle's approved data. Do not reset staging during the run.
+(Override `--env-var expected_paymongo_mode=...` as well if the target host ever reports a non-sandbox mode.)
+
+Success: every request and assertion passes against the same stable staging URL. The collection gate stops the run at Health only on environment, PayMongo mode, or database unreachability; it does not verify database identity and does not compare the deployed `commit`, so confirm the approved URL and full SHA per [STAGING.md](STAGING.md) before the run. Run this only with the cycle's approved data. Do not reset staging during the run.
 
 ## Evidence
 

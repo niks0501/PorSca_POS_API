@@ -7,7 +7,43 @@
   "variable": [
     {"key": "idempotency_key", "value": ""}
   ],
+  "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+    "// P1 env guard: fail fast on placeholder secrets or missing credentials before any stateful request fires.",
+    "var name = pm.info.requestName;",
+    "var adminPassword = pm.environment.get('admin_password') || '';",
+    "var cashierPassword = pm.environment.get('cashier_password') || '';",
+    "var webhookSecret = pm.environment.get('webhook_secret') || '';",
+    "var token = pm.environment.get('token') || '';",
+    "function isPlaceholder(v) { return !v || v.indexOf('<set-from') !== -1 || v.indexOf('<stable-') !== -1 || v.indexOf('CHANGE_ME') !== -1; }",
+    "function haltRun() { postman.setNextRequest(null); if (pm.execution && typeof pm.execution.skipRequest === 'function') { pm.execution.skipRequest(); } }",
+    "if (isPlaceholder(adminPassword) || isPlaceholder(cashierPassword) || isPlaceholder(webhookSecret)) {",
+    "  pm.test('env guard: admin_password, cashier_password and webhook_secret must be real values, not placeholders', function () { throw new Error('Refusing to run with placeholder admin_password/cashier_password/webhook_secret. See docs/TESTING.md.'); });",
+    "  haltRun();",
+    "} else if (name !== 'Auth - Login as admin' && name !== 'Health' && !token) {",
+    "  pm.test('env guard: missing auth token before stateful requests', function () { throw new Error('No auth token captured from login; refusing stateful request ' + name + '.'); });",
+    "  haltRun();",
+    "}"
+  ]}}],
   "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/health"
+      },
+      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('health environment gate: ok status on the expected target', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.status).to.eql('ok'); pm.expect(data.database).to.eql('ok'); pm.expect(data.environment).to.eql(pm.environment.get('expected_environment')); pm.expect(data.paymongo_mode).to.eql(pm.environment.get('expected_paymongo_mode')); });",
+          "// Fail the whole run on environment/database/mode mismatch so a dev-vs-staging mixup stops here with zero stateful side effects.",
+          "var gateOk = false;",
+          "try {",
+          "  var data = pm.response.json().data;",
+          "  gateOk = pm.response.code === 200 && data.status === 'ok' && data.database === 'ok' && data.environment === pm.environment.get('expected_environment') && data.paymongo_mode === pm.environment.get('expected_paymongo_mode');",
+          "} catch (e) { gateOk = false; }",
+          "if (!gateOk) { postman.setNextRequest(null); }"
+        ]}}
+      ]
+    },
     {
       "name": "Auth - Login as admin",
       "request": {
@@ -42,12 +78,22 @@
           {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
-        "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product\",\n  \"barcode\": \"4800000000999\",\n  \"category\": \"Beverage\",\n  \"price\": 17500,\n  \"stock\": 8,\n  \"reorder_level\": 2\n}"},
+        "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product\",\n  \"barcode\": \"{{managed_product_barcode}}\",\n  \"category\": \"Beverage\",\n  \"price\": 17500,\n  \"stock\": 8,\n  \"reorder_level\": 2\n}"},
         "url": "{{base_url}}/products"
       },
-      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
-        "pm.test('product is created with authoritative stock', function () { pm.response.to.have.status(201); const data = pm.response.json().data; pm.expect(data.name).to.eql('Postman Managed Product'); pm.expect(data.category).to.eql('Beverage'); pm.expect(data.stock.quantity).to.eql(8); pm.expect(data.stock.status).to.eql('in_stock'); pm.environment.set('managed_product_id', data.id); pm.environment.set('managed_product_barcode', data.barcode); });"
-      ]}}]
+      "event": [
+        {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+          "// P1 repeatability: unique managed-product barcode per run so reruns never hit the 422 unique cliff.",
+          "var barcode = '48' + String(Date.now()).slice(-8) + Math.floor(Math.random() * 10);",
+          "var last = Number(barcode.slice(-1));",
+          "var editBarcode = barcode.slice(0, -1) + ((last + 1) % 10);",
+          "pm.environment.set('managed_product_barcode', barcode);",
+          "pm.environment.set('managed_product_barcode_edit', editBarcode);"
+        ]}},
+        {"listen": "test", "script": {"type": "text/javascript", "exec": [
+          "pm.test('product is created with authoritative stock', function () { pm.response.to.have.status(201); const data = pm.response.json().data; pm.expect(data.name).to.eql('Postman Managed Product'); pm.expect(data.barcode).to.eql(pm.environment.get('managed_product_barcode')); pm.expect(data.category).to.eql('Beverage'); pm.expect(data.stock.quantity).to.eql(8); pm.expect(data.stock.status).to.eql('in_stock'); pm.environment.set('managed_product_id', data.id); });"
+        ]}}
+      ]
     },
     {
       "name": "Products - edit managed product",
@@ -57,11 +103,11 @@
           {"key": "Authorization", "value": "Bearer {{token}}"},
           {"key": "Content-Type", "value": "application/json"}
         ],
-        "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product XL\",\n  \"barcode\": \"4800000000998\",\n  \"category\": \"Beverage\",\n  \"price\": 19900,\n  \"stock\": 11\n}"},
+        "body": {"mode": "raw", "raw": "{\n  \"name\": \"Postman Managed Product XL\",\n  \"barcode\": \"{{managed_product_barcode_edit}}\",\n  \"category\": \"Beverage\",\n  \"price\": 19900,\n  \"stock\": 11\n}"},
         "url": "{{base_url}}/products/{{managed_product_id}}"
       },
       "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
-        "pm.test('product edit returns authoritative state', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.name).to.eql('Postman Managed Product XL'); pm.expect(data.barcode).to.eql('4800000000998'); pm.expect(data.price).to.eql(19900); pm.expect(data.stock.quantity).to.eql(11); });"
+        "pm.test('product edit returns authoritative state', function () { pm.response.to.have.status(200); const data = pm.response.json().data; pm.expect(data.name).to.eql('Postman Managed Product XL'); pm.expect(data.barcode).to.eql(pm.environment.get('managed_product_barcode_edit')); pm.expect(data.price).to.eql(19900); pm.expect(data.stock.quantity).to.eql(11); });"
       ]}}]
     },
     {
@@ -184,17 +230,6 @@
         "body": {"mode": "raw", "raw": "{\n  \"payment_method\": \"cash\",\n  \"cash_received\": 100000,\n  \"items\": [{\"product_id\": 999999999, \"quantity\": 1}]\n}"},
         "url": "{{base_url}}/sales/checkout"
       }
-    },
-    {
-      "name": "Health",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": "{{base_url}}/health"
-      },
-      "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": [
-        "pm.test('health is ok', function () { pm.response.to.have.status(200); pm.expect(pm.response.json().data.status).to.eql('ok'); });"
-      ]}}]
     },
     {
       "name": "Products - catalog",
