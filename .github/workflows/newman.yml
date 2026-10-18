@@ -28,7 +28,7 @@ jobs:
           extensions: mbstring, dom, fileinfo, pdo_sqlite
           coverage: none
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -149,7 +149,7 @@ jobs:
 
       - name: Upload Newman reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: newman-reports
           path: reports/newman/
