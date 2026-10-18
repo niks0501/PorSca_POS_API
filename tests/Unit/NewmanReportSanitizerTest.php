@@ -115,6 +115,151 @@ class NewmanReportSanitizerTest extends TestCase
         $this->assertStringContainsString('token-shaped value', $check->getErrorOutput());
     }
 
+    public function test_with_links_renders_bare_and_sha256_prefixed_artifact_digests(): void
+    {
+        $digest = hash('sha256', 'newman-reports');
+
+        file_put_contents(
+            $this->directory.'/newman.json',
+            json_encode([
+                'collection' => ['info' => ['name' => 'Digest rendering']],
+                'run' => [
+                    'stats' => [
+                        'requests' => ['total' => 1, 'failed' => 0],
+                        'assertions' => ['total' => 1, 'failed' => 0],
+                    ],
+                    'failures' => [],
+                    'executions' => [],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
+        );
+
+        foreach ([$digest, 'sha256:'.$digest] as $artifactDigest) {
+            $process = $this->runScript([
+                '--with-links',
+                $this->directory,
+                'https://github.com/alfredc-12/PorSca_POS/actions/runs/1',
+                'https://github.com/alfredc-12/PorSca_POS/actions/runs/1/artifacts/2',
+                $artifactDigest,
+            ]);
+
+            $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+
+            $summary = (string) file_get_contents($this->directory.'/summary.md');
+
+            $this->assertStringContainsString('Artifact digest: `sha256:'.$digest.'`', $summary);
+        }
+    }
+
+    public function test_apostrophes_render_intact_in_request_and_failure_tables(): void
+    {
+        $requestName = "Health check's catalog probe";
+        $assertionName = "reader's check";
+        $message = "Cannot read properties of undefined (reading 'name')";
+
+        $this->writeReport([
+            'collection' => ['info' => ['name' => $requestName]],
+            'run' => [
+                'stats' => [
+                    'requests' => ['total' => 1, 'failed' => 0],
+                    'assertions' => ['total' => 1, 'failed' => 1],
+                ],
+                'failures' => [
+                    [
+                        'at' => 'assertion:0 in test-script',
+                        'source' => ['id' => 'request-1', 'name' => $requestName],
+                        'error' => ['name' => 'TypeError', 'test' => $assertionName, 'message' => $message],
+                    ],
+                ],
+                'executions' => [
+                    [
+                        'item' => ['id' => 'request-1', 'name' => $requestName],
+                        'request' => ['method' => 'GET'],
+                        'response' => ['code' => 200, 'responseTime' => 153],
+                        'assertions' => [
+                            [
+                                'assertion' => $assertionName,
+                                'error' => ['name' => 'TypeError', 'message' => $message],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $process = $this->runScript([
+            $this->directory.'/newman.json',
+            $this->directory.'/summary.md',
+            $this->directory,
+        ]);
+
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+
+        $summary = (string) file_get_contents($this->directory.'/summary.md');
+
+        $this->assertStringContainsString('| 1 | '.$requestName.' | GET | 200 | 153 ms | 0/1 passed, 1 failed |', $summary);
+        $this->assertStringContainsString("## Slowest requests\n\n| Rank | Request | Method | HTTP | Response time |\n| --- | --- | --- | --- | --- |\n| 1 | ".$requestName.' | GET | 200 | 153 ms |', $summary);
+        $this->assertStringContainsString('| '.$requestName.' | '.$assertionName." | Cannot read properties of undefined \\(reading 'name'\\) |", $summary);
+        $this->assertStringNotContainsString('&#039;', $summary);
+        $this->assertStringNotContainsString('&\\#039;', $summary);
+    }
+
+    public function test_transport_failure_details_use_the_newman_failure_message(): void
+    {
+        $this->writeReport([
+            'collection' => ['info' => ['name' => 'Transport failure']],
+            'run' => [
+                'stats' => [
+                    'requests' => ['total' => 1, 'failed' => 1],
+                    'assertions' => ['total' => 0, 'failed' => 0],
+                ],
+                'failures' => [
+                    [
+                        'at' => 'request',
+                        'source' => ['id' => 'request-1', 'name' => 'Unreachable endpoint'],
+                        'error' => ['name' => 'Error', 'message' => 'connect ECONNREFUSED 127.0.0.1:59999'],
+                    ],
+                ],
+                'executions' => [
+                    [
+                        'item' => ['id' => 'request-1', 'name' => 'Unreachable endpoint'],
+                        'request' => ['method' => 'GET'],
+                        'assertions' => [],
+                        'requestError' => [
+                            'errno' => -111,
+                            'code' => 'ECONNREFUSED',
+                            'syscall' => 'connect',
+                            'address' => '127.0.0.1',
+                            'port' => 59999,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $process = $this->runScript([
+            $this->directory.'/newman.json',
+            $this->directory.'/summary.md',
+            $this->directory,
+        ]);
+
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput().$process->getOutput());
+
+        $summary = (string) file_get_contents($this->directory.'/summary.md');
+
+        $this->assertStringContainsString('| Unreachable endpoint | HTTP request | connect ECONNREFUSED 127\\.0\\.0\\.1:59999 |', $summary);
+        $this->assertStringNotContainsString('Request or assertion failed', $summary);
+    }
+
+    /** @param array<string, mixed> $report */
+    private function writeReport(array $report): void
+    {
+        file_put_contents(
+            $this->directory.'/newman.json',
+            json_encode($report, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
+        );
+    }
+
     private function writeBufferReport(string $token, string $password, bool $base64EncodeBody = false): void
     {
         $body = json_encode([
