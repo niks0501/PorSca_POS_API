@@ -2,9 +2,9 @@ name: API checks
 
 on:
   pull_request:
-    branches: [main, staging]
+    branches: [main, staging, development]
   push:
-    branches: [main, staging]
+    branches: [main, staging, development]
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2

@@ -14,7 +14,7 @@ class InventoryController extends ApiController
             ->with('product')
             ->when($request->boolean('low_stock'), fn ($query) => $query->whereColumn('quantity', '<=', 'reorder_level'))
             ->orderBy('product_id')
-            ->paginate(min((int) $request->integer('per_page', 50), 100));
+            ->paginate(max(1, min($request->integer('per_page', 50), 100)));
 
         return $this->data([
             'items' => $inventory->getCollection()->map(fn (Inventory $stock) => $this->inventoryArray($stock))->values()->all(),

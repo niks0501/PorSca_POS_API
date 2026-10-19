@@ -50,8 +50,6 @@ class ReservationConcurrencyTest extends TestCase
             }
             $started = true;
 
-            // Checkout A now holds the product lock. Checkout B establishes its
-            // RR snapshot via the real sales-idempotency read, then waits on A.
             $worker->start();
             $this->assertTrue($worker->waitUntil(
                 fn () => str_contains($worker->getOutput(), "snapshot-ready\n"),

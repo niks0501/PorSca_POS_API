@@ -21,6 +21,10 @@ config([
 ]);
 DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
 DB::statement('SET SESSION innodb_lock_wait_timeout = 10');
+if ($input['observe_transaction'] ?? false) {
+    fwrite(STDOUT, 'connection:'.DB::selectOne('SELECT CONNECTION_ID() AS id')->id."\n");
+    fflush(STDOUT);
+}
 $attempts = 0;
 DB::connection()->beforeStartingTransaction(function ($connection) use (&$attempts): void {
     if ($connection->transactionLevel() === 0) {

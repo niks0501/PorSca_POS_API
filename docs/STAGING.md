@@ -4,8 +4,8 @@ Staging is for formal QA, not a developer scratch database. Preparing the host d
 
 ## Branch and promotion rules
 
-1. Make feature branches from `main` and open pull requests to `staging`.
-2. Fix QA defects from `staging`; never patch it directly.
+1. Make feature branches from `development` and open feature pull requests to `development`.
+2. Reconcile `development` into a promotion branch based on `staging`, then open a separate captain-approved promotion pull request to `staging`. Never push directly to `staging` or merge a promotion autonomously; feature work stays on `development`.
 3. Promote the exact paired API and mobile commits to `main` only after human approval of formal QA. Agents never merge releases.
 
 See [the billing-lock merge rule](STAGING.md#merging-while-the-check-runners-are-down-billing-lock): unavailable checks are not failed checks; merge to `staging` during runner outages only with green local `composer verify`, human diff review, and confirmation billing is the sole cause. `main` promotion still requires green checks or completed human-approved QA.
@@ -46,9 +46,9 @@ Add the daily Laravel scheduler cron (`php artisan schedule:run`) and retain bac
 
 ### Deploy
 
-The workflow `.github/workflows/deploy-staging.yml` deploys only on manual dispatch for the `staging` ref; pushes do not deploy. It serializes runs, rejects stale SHAs, resets to the dispatched commit, restores `www-data` group write access on the existing writable paths, installs production dependencies, clears config, migrates, writes `APP_COMMIT`, caches config, and calls the HTTPS health endpoint. It requires HTTP success, `data.status=ok`, and the exact deployed `data.commit`.
+The workflow `.github/workflows/deploy-staging.yml` deploys only on manual dispatch for the `staging` ref; pushes do not deploy. It serializes runs, rejects stale SHAs, refuses to reset a dirty host checkout, resets to the dispatched commit, restores `www-data` group write access on the existing writable paths, installs production dependencies, clears config, migrates, writes `APP_COMMIT`, caches config, and calls the HTTPS health endpoint. It requires HTTP success, `data.status=ok`, and the exact deployed `data.commit`.
 
-Configure exactly these three GitHub Actions secrets: `STAGING_HOST`, `STAGING_USER`, and `STAGING_SSH_KEY`. Use port 22. No database, PayMongo, admin, or AWS credentials belong in Actions. The key is loaded through a short-lived SSH agent. Host keys are discovered with `ssh-keyscan` (trust-on-first-use); independently verify the fingerprint with the operator during setup. The host checkout, private `.env`, app key, database grants, Composer/PHP, and HTTPS must be ready before dispatch.
+Configure these three GitHub Actions secrets: `STAGING_HOST`, `STAGING_USER`, and `STAGING_SSH_KEY`, plus the repository Actions variable `STAGING_HOST_KEY`. Use port 22. No database, PayMongo, admin, or AWS credentials belong in Actions. The SSH key is loaded through a short-lived agent. Before the first dispatch, collect the host's public key line with `ssh-keyscan "$STAGING_HOST"` on a trusted operator machine and independently verify its fingerprint with the operator using a trusted source. Set `STAGING_HOST_KEY` to exactly one verified, unhashed output line (`<host> <keytype> <base64>`); do not use a SHA256 fingerprint, a hashed `ssh-keyscan -H` line, or multiple lines. The workflow writes this exact pin as the sole entry in SSH's temporary known-hosts file and fails closed if the variable is absent or contains multiple lines; SSH rejects any host that does not present the pinned key. The host checkout, private `.env`, app key, database grants, Composer/PHP, and HTTPS must be ready before dispatch.
 
 Deployment does not reset or seed QA data. Migrations may change schema; coordinate checkout writer pauses as required. A failed run is not an automatic rollback; diagnose privately and retry only the current staging SHA. The first real live proof is the first promotion merge into `staging` after setup, with a green workflow and health fields `environment=staging`, `database=ok`, `paymongo_mode=sandbox`, `status=ok`, and exact `commit`. Until then, local/YAML checks are not live proof.
 

@@ -9,7 +9,6 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class CashSaleService
@@ -24,113 +23,101 @@ class CashSaleService
             'cash_received' => $cashReceived,
         ], JSON_THROW_ON_ERROR));
 
-        try {
-            return DB::transaction(function () use ($idempotencyKey, $items, $cashReceived, $requestHash): Sale {
-                $existing = Sale::query()
-                    ->where('key_namespace', Sale::CHECKOUT_NAMESPACE)
-                    ->where('idempotency_key', $idempotencyKey)
-                    ->lockForUpdate()
-                    ->first();
+        return DB::transaction(function () use ($idempotencyKey, $items, $cashReceived, $requestHash): Sale {
+            DB::table('checkout_keys')->upsert(
+                [['idempotency_key' => $idempotencyKey]], ['idempotency_key'], ['idempotency_key'],
+            );
+            $products = Product::query()
+                ->whereIn('id', array_keys($items))
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+            $existing = Sale::query()
+                ->where('key_namespace', Sale::CHECKOUT_NAMESPACE)
+                ->where('idempotency_key', $idempotencyKey)
+                ->lockForUpdate()
+                ->first();
 
-                if ($existing !== null) {
-                    $this->assertSameRequest($existing, $requestHash);
+            if ($existing !== null) {
+                $this->assertSameRequest($existing, $requestHash);
 
-                    return $existing->fresh()->load('items.product');
+                return $existing->fresh()->load('items.product');
+            }
+
+            if (Payment::query()->where('idempotency_key', $idempotencyKey)->lockForUpdate()->exists()) {
+                throw new IdempotencyConflict;
+            }
+
+            $unavailable = [];
+            foreach (array_keys($items) as $productId) {
+                $product = $products->get($productId);
+                if ($product === null || ! $product->active) {
+                    $unavailable[] = $productId;
                 }
+            }
 
-                if (Payment::query()->where('idempotency_key', $idempotencyKey)->exists()) {
-                    throw new IdempotencyConflict;
-                }
+            if ($unavailable !== []) {
+                throw new ApiException('One or more products are unavailable.', 422, [
+                    'items' => ['Unavailable product IDs: '.implode(', ', $unavailable)],
+                ]);
+            }
 
-                $products = Product::query()
-                    ->whereIn('id', array_keys($items))
-                    ->lockForUpdate()
-                    ->get()
-                    ->keyBy('id');
+            $total = 0;
+            foreach ($items as $productId => $quantity) {
+                $total += $products->get($productId)->price * $quantity;
+            }
 
-                $unavailable = [];
-                foreach (array_keys($items) as $productId) {
-                    $product = $products->get($productId);
-                    if ($product === null || ! $product->active) {
-                        $unavailable[] = $productId;
-                    }
-                }
+            if ($cashReceived < $total) {
+                throw new InsufficientCash($cashReceived, $total);
+            }
 
-                if ($unavailable !== []) {
-                    throw new ApiException('One or more products are unavailable.', 422, [
-                        'items' => ['Unavailable product IDs: '.implode(', ', $unavailable)],
-                    ]);
-                }
+            // Lock every inventory row in product-id order and validate it
+            // immediately before any sale or stock write is made.
+            $lockedInventory = [];
+            foreach ($items as $productId => $quantity) {
+                $lockedInventory[$productId] = $this->stock->lockAndCheck($productId, $quantity, $products->get($productId)->name);
+            }
 
-                $total = 0;
-                foreach ($items as $productId => $quantity) {
-                    $total += $products->get($productId)->price * $quantity;
-                }
+            $changeAmount = $cashReceived - $total;
+            $sale = Sale::create([
+                'key_namespace' => Sale::CHECKOUT_NAMESPACE,
+                'idempotency_key' => $idempotencyKey,
+                'request_hash' => $requestHash,
+                'total_amount' => $total,
+                'currency' => 'PHP',
+                'status' => 'completed',
+                'payment_method' => 'cash',
+                'cash_received' => $cashReceived,
+                'change_amount' => $changeAmount,
+                'completed_at' => now(),
+            ]);
 
-                if ($cashReceived < $total) {
-                    throw new InsufficientCash($cashReceived, $total);
-                }
+            foreach ($items as $productId => $quantity) {
+                $sale->items()->create([
+                    'product_id' => $productId,
+                    'quantity' => $quantity,
+                    'unit_price' => $products->get($productId)->price,
+                ]);
+                $lockedInventory[$productId]->decrement('quantity', $quantity);
+            }
 
-                // Lock every inventory row in product-id order and validate it
-                // immediately before any sale or stock write is made.
-                $lockedInventory = [];
-                foreach ($items as $productId => $quantity) {
-                    $lockedInventory[$productId] = $this->stock->lockAndCheck($productId, $quantity, $products->get($productId)->name);
-                }
-
-                $changeAmount = $cashReceived - $total;
-                $sale = Sale::create([
-                    'key_namespace' => Sale::CHECKOUT_NAMESPACE,
-                    'idempotency_key' => $idempotencyKey,
-                    'request_hash' => $requestHash,
-                    'total_amount' => $total,
-                    'currency' => 'PHP',
-                    'status' => 'completed',
+            Transaction::create([
+                'sale_id' => $sale->id,
+                'type' => 'cash_sale',
+                'status' => 'completed',
+                'amount' => $total,
+                'currency' => $sale->currency,
+                'occurred_at' => now(),
+                'metadata' => [
                     'payment_method' => 'cash',
                     'cash_received' => $cashReceived,
                     'change_amount' => $changeAmount,
-                    'completed_at' => now(),
-                ]);
+                ],
+            ]);
 
-                foreach ($items as $productId => $quantity) {
-                    $sale->items()->create([
-                        'product_id' => $productId,
-                        'quantity' => $quantity,
-                        'unit_price' => $products->get($productId)->price,
-                    ]);
-                    $lockedInventory[$productId]->decrement('quantity', $quantity);
-                }
-
-                Transaction::create([
-                    'sale_id' => $sale->id,
-                    'type' => 'cash_sale',
-                    'status' => 'completed',
-                    'amount' => $total,
-                    'currency' => $sale->currency,
-                    'occurred_at' => now(),
-                    'metadata' => [
-                        'payment_method' => 'cash',
-                        'cash_received' => $cashReceived,
-                        'change_amount' => $changeAmount,
-                    ],
-                ]);
-
-                return $sale->fresh()->load('items.product');
-            }, 3);
-        } catch (UniqueConstraintViolationException $exception) {
-            // If two requests arrive together, the database's unique
-            // idempotency key is the final exactly-once guard. Return the row
-            // created by the winner after its transaction has rolled back ours.
-            $existing = Sale::query()->where('key_namespace', Sale::CHECKOUT_NAMESPACE)
-                ->where('idempotency_key', $idempotencyKey)->first();
-            if ($existing === null) {
-                throw $exception;
-            }
-
-            $this->assertSameRequest($existing, $requestHash);
-
-            return $existing->load('items.product');
-        }
+            return $sale->fresh()->load('items.product');
+        }, 3);
     }
 
     /** @param array<int, array<string, mixed>> $requestedItems */

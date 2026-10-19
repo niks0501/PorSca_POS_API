@@ -22,6 +22,7 @@ jobs:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
           STAGING_USER: ${{ secrets.STAGING_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST_KEY: ${{ vars.STAGING_HOST_KEY }}
           DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -33,13 +34,11 @@ jobs:
             exit 1
           fi
           unset STAGING_SSH_KEY
-          # Fetch public host keys into a temp file first: the previous
-          # process substitution raced a still-running ssh-keyscan and ssh
-          # read an incomplete known-hosts, failing host verification.
-          if ! timeout 30 ssh-keyscan -H "$STAGING_HOST" >"$KNOWN_HOSTS" 2>/dev/null || ! test -s "$KNOWN_HOSTS"; then
-            echo "ssh-keyscan obtained no host keys for STAGING_HOST" >&2
+          if [ -z "$STAGING_HOST_KEY" ] || [[ "$STAGING_HOST_KEY" == *$'\n'* ]]; then
+            echo "STAGING_HOST_KEY must contain exactly one known-hosts line" >&2
             exit 1
           fi
+          printf '%s\n' "$STAGING_HOST_KEY" >"$KNOWN_HOSTS"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$KNOWN_HOSTS" \
             "$STAGING_USER@$STAGING_HOST" bash -s -- "$DEPLOY_SHA" <<'DEPLOY'
@@ -48,6 +47,13 @@ jobs:
           git fetch origin staging --quiet
           # Do not roll back staging when a queued/manual run has become stale.
           test "$(git rev-parse FETCH_HEAD)" = "$1"
+          if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "Refusing to reset a dirty staging checkout" >&2
+            exit 1
+          fi
+          PREVIOUS_SHA="$(git rev-parse HEAD)"
+          echo "Rollback notice: previous deployed SHA was $PREVIOUS_SHA"
+          php artisan down
           git reset --hard "$1" >/dev/null
           # Restore PHP-FPM write access after reset (deploy owns tracked files).
           for path in storage bootstrap/cache; do
@@ -59,6 +65,7 @@ jobs:
           composer install --no-dev --optimize-autoloader --no-interaction --no-progress
           php artisan config:clear
           php artisan migrate --force
+          php artisan up
           # Record before caching so HTTP workers see the deployed SHA.
           php -r '$p=".env"; $s=file_get_contents($p); $s=preg_replace("/^APP_COMMIT=.*\\R?/m", "", $s); file_put_contents($p, rtrim($s)."\nAPP_COMMIT=".$argv[1]."\n");' "$1"
           php artisan config:cache
