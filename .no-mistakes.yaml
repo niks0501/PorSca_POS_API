@@ -1,0 +1,87 @@
+pr:
+  base_branch: development
+
+ignore_patterns:
+  - "graphify-out/**"
+
+protected_paths:
+  - ".no-mistakes.yaml"
+  - "database/migrations/**"
+  - ".github/workflows/**"
+
+document:
+  instructions: |
+    README.md owns installation and onboarding.
+    PROJECT_CHECKS.md owns verification commands.
+    PROJECT_STACK.md owns architecture guidance.
+    DATABASE_GUIDE.md owns database setup and safety.
+    docs/ARCHITECTURE.md owns API architecture.
+    docs/CHECKOUT-CONTRACT.md owns checkout contracts.
+    docs/STAGING.md owns staging and deployment.
+    docs/QA-CYCLE.md owns formal QA procedures.
+    Update existing owners rather than duplicating facts.
+
+review:
+  path_instructions:
+    - path: "app/Services/**"
+      instructions: |
+        Check transaction atomicity, stock reservation,
+        checkout idempotency, payment settlement,
+        webhook safety, and reconciliation correctness.
+        Never allow duplicate sales or double deductions.
+
+    - path: "app/Domain/**"
+      instructions: |
+        Preserve checkout invariants, monetary correctness,
+        stock constraints, and business-rule consistency.
+
+    - path: "app/Http/**"
+      instructions: |
+        Check input validation, authorization,
+        authentication, HTTP responses, and error handling.
+
+    - path: "routes/**"
+      instructions: |
+        Check endpoint access, API compatibility,
+        response contracts, and route security.
+
+    - path: "database/migrations/**"
+      instructions: |
+        Check migration safety and data preservation.
+        Never assume production data can be reset.
+        Identify compatibility and rollback risks.
+
+test:
+  instructions: |
+    Follow PROJECT_CHECKS.md.
+    Run relevant Laravel Feature and PHPUnit tests
+    against an isolated disposable test database.
+
+    For browser-accessible live API verification,
+    use only chrome-devtools-axi.
+
+    Assign a unique CHROME_DEVTOOLS_AXI_SESSION per run,
+    derived from the run or isolated worktree identity.
+    Reuse that session throughout verification.
+    Use AXI's default isolated Chrome launch mode.
+    Never attach to shared browser sessions.
+    Do not set a shared CHROME_DEVTOOLS_AXI_PORT.
+
+    Start only an isolated local API when needed.
+    Exercise affected browser-accessible HTTP behavior.
+    Inspect request outcomes and response data.
+    Never access shared, staging, or production databases.
+
+    Never use agent-device, phones, emulators, or ADB.
+    Never trigger real payments, deployments,
+    destructive migrations, or external webhooks.
+
+    Do not create persistent E2E scripts.
+    Do not substitute browser checks for API contract tests.
+
+    Report actual defects as no-go with evidence.
+    If required live verification is unsupported
+    or unavailable, report inconclusive with reasons
+    and manual verification steps.
+    Never mark unverified behavior as passed.
+    Clean up only resources owned by this run.

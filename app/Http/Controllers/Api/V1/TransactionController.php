@@ -13,7 +13,7 @@ class TransactionController extends ApiController
             ->when($request->filled('payment_id'), fn ($query) => $query->where('payment_id', $request->integer('payment_id')))
             ->when($request->filled('sale_id'), fn ($query) => $query->where('sale_id', $request->integer('sale_id')))
             ->latest('occurred_at')
-            ->paginate(min((int) $request->integer('per_page', 50), 100));
+            ->paginate(max(1, min($request->integer('per_page', 50), 100)));
 
         return $this->data([
             'items' => $transactions->getCollection()->map(fn (Transaction $transaction) => $this->transactionArray($transaction))->values()->all(),

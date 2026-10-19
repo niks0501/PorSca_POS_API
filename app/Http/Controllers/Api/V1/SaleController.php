@@ -13,7 +13,7 @@ class SaleController extends ApiController
             ->where('status', 'completed')
             ->with('items.product')
             ->latest('completed_at')
-            ->paginate(min((int) $request->integer('per_page', 50), 100));
+            ->paginate(max(1, min($request->integer('per_page', 50), 100)));
 
         return $this->data([
             'items' => $sales->getCollection()->map(fn (Sale $sale) => $this->saleArray($sale))->values()->all(),

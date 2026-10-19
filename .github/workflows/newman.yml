@@ -1,0 +1,180 @@
+name: Newman API contract
+
+on:
+  pull_request:
+    branches: [main, staging, development]
+  push:
+    branches: [main, staging, development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: newman-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  newman:
+    name: Newman report
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, pdo_sqlite
+          coverage: none
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare disposable local environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p reports
+          cp .env.example .env
+
+          ADMIN_EMAIL=qa-admin@porsca.test
+          ADMIN_PASSWORD="$(php -r 'echo bin2hex(random_bytes(32));')"
+          QA_CASHIER_PASSWORD="$(php -r 'echo bin2hex(random_bytes(32));')"
+          PAYMONGO_WEBHOOK_SECRET="whsec_$(php -r 'echo bin2hex(random_bytes(32));')"
+          APP_ENV=local
+          APP_DEBUG=false
+          APP_URL=http://127.0.0.1:8000
+          PAYMONGO_MODE=sandbox
+          DB_CONNECTION=sqlite
+          DB_DATABASE="$GITHUB_WORKSPACE/reports/newman.sqlite"
+
+          printf '::add-mask::%s\n' "$ADMIN_PASSWORD"
+          printf '::add-mask::%s\n' "$QA_CASHIER_PASSWORD"
+          printf '::add-mask::%s\n' "$PAYMONGO_WEBHOOK_SECRET"
+
+          export ADMIN_EMAIL ADMIN_PASSWORD QA_CASHIER_PASSWORD PAYMONGO_WEBHOOK_SECRET
+          export APP_ENV APP_DEBUG APP_URL PAYMONGO_MODE DB_CONNECTION DB_DATABASE
+          touch "$DB_DATABASE"
+          php <<'PHP'
+          <?php
+          $path = '.env';
+          $contents = file_get_contents($path);
+          if ($contents === false) {
+              fwrite(STDERR, "Could not read .env.\n");
+              exit(1);
+          }
+          $values = [
+              'APP_ENV' => getenv('APP_ENV'),
+              'APP_DEBUG' => getenv('APP_DEBUG'),
+              'APP_URL' => getenv('APP_URL'),
+              'ADMIN_EMAIL' => getenv('ADMIN_EMAIL'),
+              'ADMIN_PASSWORD' => getenv('ADMIN_PASSWORD'),
+              'PAYMONGO_MODE' => getenv('PAYMONGO_MODE'),
+              'PAYMONGO_WEBHOOK_SECRET' => getenv('PAYMONGO_WEBHOOK_SECRET'),
+              'DB_CONNECTION' => getenv('DB_CONNECTION'),
+              'DB_DATABASE' => getenv('DB_DATABASE'),
+          ];
+          foreach ($values as $key => $value) {
+              if (! is_string($value)) {
+                  fwrite(STDERR, "A required local setting is missing.\n");
+                  exit(1);
+              }
+              $pattern = '/^'.preg_quote($key, '/').'=.*/m';
+              $replacement = static function () use ($key, $value): string {
+                  return $key.'='.$value;
+              };
+              if (preg_match($pattern, $contents) === 1) {
+                  $contents = preg_replace_callback($pattern, $replacement, $contents, 1);
+              } else {
+                  $contents .= "\n".$key.'='.$value."\n";
+              }
+          }
+          if (file_put_contents($path, $contents, LOCK_EX) === false) {
+              fwrite(STDERR, "Could not write local .env settings.\n");
+              exit(1);
+          }
+          PHP
+
+          {
+            printf 'ADMIN_EMAIL=%s\n' "$ADMIN_EMAIL"
+            printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD"
+            printf 'QA_CASHIER_PASSWORD=%s\n' "$QA_CASHIER_PASSWORD"
+            printf 'PAYMONGO_WEBHOOK_SECRET=%s\n' "$PAYMONGO_WEBHOOK_SECRET"
+            printf 'APP_ENV=%s\n' "$APP_ENV"
+            printf 'APP_DEBUG=%s\n' "$APP_DEBUG"
+            printf 'APP_URL=%s\n' "$APP_URL"
+            printf 'PAYMONGO_MODE=%s\n' "$PAYMONGO_MODE"
+            printf 'DB_CONNECTION=%s\n' "$DB_CONNECTION"
+            printf 'DB_DATABASE=%s\n' "$DB_DATABASE"
+          } >> "$GITHUB_ENV"
+
+          php artisan key:generate --force --no-interaction
+          php artisan migrate:fresh --seed --force --no-interaction
+          php artisan tinker --execute='
+          $password = env("QA_CASHIER_PASSWORD");
+          if (blank($password) || mb_strlen($password) < 8) { fwrite(STDERR, "QA_CASHIER_PASSWORD must be set with at least 8 characters; aborting.\n"); exit(1); }
+          $user = App\Models\User::query()->firstOrCreate(
+              ["email" => "qa-cashier@porsca.test"],
+              ["name" => "QA Cashier", "password" => $password,
+               "role" => App\Models\User::ROLE_CASHIER, "is_active" => true],
+          );
+          $user->forceFill(["role" => App\Models\User::ROLE_CASHIER, "is_active" => true])->save();
+          echo $user->wasRecentlyCreated ? "QA cashier created\n" : "QA cashier already present; password unchanged\n";
+          '
+
+      - name: Start disposable API and wait for health
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup php artisan serve --host=127.0.0.1 --port=8000 > "$RUNNER_TEMP/newman-api.log" 2>&1 < /dev/null &
+          echo "$!" > "$RUNNER_TEMP/newman-api.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8000/api/v1/health >/dev/null; then
+              printf 'Disposable API health check passed.\n'
+              exit 0
+            fi
+            sleep 2
+          done
+          printf 'Disposable API did not become healthy within 120 seconds.\n' >&2
+          exit 1
+
+      - name: Run Newman and build report
+        run: bash scripts/newman-report.sh
+
+      - name: Upload Newman reports
+        id: newman-reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: newman-reports
+          path: reports/newman/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish run summary
+        if: always()
+        shell: bash
+        env:
+          NEWMAN_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEWMAN_ARTIFACT_URL: ${{ steps.newman-reports.outputs.artifact-url }}
+          NEWMAN_ARTIFACT_DIGEST: ${{ steps.newman-reports.outputs.artifact-digest }}
+        run: |
+          if [[ -f reports/newman/summary.md && -f reports/newman/newman.json ]]; then
+            php scripts/newman-report-summary.php --with-links reports/newman \
+              "$NEWMAN_RUN_URL" "$NEWMAN_ARTIFACT_URL" "$NEWMAN_ARTIFACT_DIGEST"
+            cat reports/newman/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf 'Newman did not produce a sanitized report. See the job result for the failure.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          summary_bytes=$(wc -c < "$GITHUB_STEP_SUMMARY")
+          if (( summary_bytes > 1048576 )); then
+            printf 'The Newman step summary exceeds GitHub’s 1 MiB per-step limit.\n' >&2
+            exit 1
+          fi
