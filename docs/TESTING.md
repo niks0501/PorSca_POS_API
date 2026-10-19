@@ -40,13 +40,13 @@ See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and f
 
 ## MySQL concurrency regression
 
-`ReservationConcurrencyTest` and `SettlementConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
+`ReservationConcurrencyTest`, `SettlementConcurrencyTest` and `LegacyCheckoutKeyConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
 
 ```sh
-php artisan test --filter='(ReservationConcurrencyTest|SettlementConcurrencyTest)'
+php artisan test --filter='(ReservationConcurrencyTest|SettlementConcurrencyTest|LegacyCheckoutKeyConcurrencyTest)'
 ```
 
-These tests rebuild the selected database; never point them at staging or production. They use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm the competing transaction is waiting on that lock, then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+These tests rebuild the selected database; never point them at staging or production. They use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm through `information_schema.innodb_trx` that the competing transaction is waiting on that lock (the test user needs the `PROCESS` privilege to see another session's transaction), then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. `LegacyCheckoutKeyConcurrencyTest` races the same public key with opposed tender methods and observes the contender through `performance_schema.data_lock_waits`, `data_locks` and `threads`, so the test user also needs `SELECT` on those three Performance Schema tables. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
 
 ## Postman collection
 
