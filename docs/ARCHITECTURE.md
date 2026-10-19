@@ -83,6 +83,7 @@ Success:
   "data": {
     "service": "porsca-api",
     "version": "v1",
+    "commit": "<deployed-full-sha>",
     "environment": "staging",
     "database": "ok",
     "paymongo_mode": "sandbox",

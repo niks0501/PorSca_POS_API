@@ -8,7 +8,7 @@ Staging is for formal QA, not a developer scratch database. Preparing the host d
 2. Reconcile `development` into a promotion branch based on `staging`, then open a separate captain-approved promotion pull request to `staging`. Never push directly to `staging` or merge a promotion autonomously; feature work stays on `development`.
 3. Promote the exact paired API and mobile commits to `main` only after human approval of formal QA. Agents never merge releases.
 
-See [the billing-lock merge rule](STAGING.md#merging-while-the-check-runners-are-down-billing-lock): unavailable checks are not failed checks; merge to `staging` during runner outages only with green local `composer verify`, human diff review, and confirmation billing is the sole cause. `main` promotion still requires green checks or completed human-approved QA.
+Unavailable checks are not failed checks: merge to `staging` during runner outages only with green local `composer verify`, human diff review, and confirmation billing is the sole cause. `main` promotion still requires green checks or completed human-approved QA.
 
 ## AWS Lightsail staging runbook
 
