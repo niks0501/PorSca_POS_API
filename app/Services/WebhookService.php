@@ -128,7 +128,7 @@ class WebhookService
         }
 
         return $payment->checkout_id === null
-            ? $payment->status === Payment::PENDING
+            ? ! in_array($payment->status, [Payment::PAID, Payment::PAID_UNFULFILLED], true)
             : $payment->first_verified_outcome === null;
     }
 

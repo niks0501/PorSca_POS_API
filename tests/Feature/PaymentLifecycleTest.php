@@ -197,6 +197,35 @@ class PaymentLifecycleTest extends TestCase
         $this->assertSame(4, $product->inventory->fresh()->quantity);
     }
 
+    public function test_signed_paid_redelivery_reinspects_a_pending_event_after_local_expiry_and_records_one_sale(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $event = $this->event('evt-pending-then-expired');
+        $responses = [$this->intent('awaiting_next_action'), $this->intent('awaiting_next_action'), $this->intent('succeeded')];
+        $inspections = 0;
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => function () use (&$responses, &$inspections) {
+            $inspections++;
+
+            return Http::response(array_shift($responses));
+        }]);
+
+        $this->signed($event)->assertOk()->assertJsonPath('data.payment.status', Payment::PENDING);
+        $payment->update(['reservation_expires_at' => now()->subMinute()]);
+        $this->postJson('/api/v1/payments/'.$payment->id.'/refresh', [], ['Authorization' => 'Bearer '.$this->token])
+            ->assertOk()->assertJsonPath('data.status', Payment::EXPIRED);
+        $this->assertSame(0, Sale::count());
+        $this->signed($event)->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.status', Payment::PAID);
+        $saleId = $payment->fresh()->sale_id;
+        $this->assertNotNull($saleId);
+        $this->signed($event)->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.sale_id', $saleId);
+        $this->assertSame(3, $inspections);
+        $this->assertSame(1, Sale::count());
+        $this->assertDatabaseCount('sale_items', 1);
+        $this->assertSame(1, Transaction::where('type', 'payment_succeeded')->where('provider_event_id', 'evt-pending-then-expired')->count());
+        $this->assertSame(4, $product->inventory->fresh()->quantity);
+    }
+
     public function test_paid_redelivery_cannot_rebind_a_pending_event_to_another_resource_or_type(): void
     {
         $product = $this->product();
