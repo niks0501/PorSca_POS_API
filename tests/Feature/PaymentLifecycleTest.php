@@ -161,6 +161,56 @@ class PaymentLifecycleTest extends TestCase
         $this->assertSame(4, $product->fresh()->inventory->quantity);
     }
 
+    public function test_signed_paid_redelivery_reinspects_pending_until_paid_and_then_deduplicates(): void
+    {
+        $product = $this->product();
+        $payment = $this->start($product);
+        $event = $this->event('evt-pending-then-paid');
+        $level = DB::transactionLevel();
+        $responses = [$this->intent('awaiting_next_action'), $this->intent('awaiting_next_action'),
+            $this->intent('succeeded', 499), $this->intent('succeeded')];
+        $inspections = 0;
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => function () use (&$responses, &$inspections, $level) {
+            $this->assertSame($level, DB::transactionLevel());
+            $this->assertNotEmpty($responses, 'A terminal duplicate must not inspect the provider again.');
+            $inspections++;
+
+            return Http::response(array_shift($responses));
+        }]);
+
+        $this->signed($event)->assertOk()->assertJsonPath('data.payment.status', Payment::PENDING);
+        $this->signed($event)->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.status', Payment::PENDING);
+        $this->signed($event)->assertOk()->assertJsonPath('data.payment.status', Payment::PENDING);
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(5, $product->inventory->fresh()->quantity);
+        // A provider-mismatch retry retains the compatibility response, while
+        // an already accepted pending delivery above reports duplicate=true.
+        $this->signed($event)->assertOk()->assertJsonPath('data.duplicate', false)->assertJsonPath('data.payment.status', Payment::PAID);
+        $saleId = $payment->fresh()->sale_id;
+        $this->assertNotNull($saleId);
+        $this->signed($event)->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.sale_id', $saleId);
+        $this->assertSame(4, $inspections);
+        $this->assertSame(1, WebhookEvent::where('provider_event_id', 'evt-pending-then-paid')->count());
+        $this->assertSame(1, Sale::count());
+        $this->assertDatabaseCount('sale_items', 1);
+        $this->assertSame(1, Transaction::where('type', 'payment_succeeded')->where('provider_event_id', 'evt-pending-then-paid')->count());
+        $this->assertSame(4, $product->inventory->fresh()->quantity);
+    }
+
+    public function test_paid_redelivery_cannot_rebind_a_pending_event_to_another_resource_or_type(): void
+    {
+        $product = $this->product();
+        $this->start($product);
+        $event = $this->event('evt-pending-bound');
+        $this->signed($event)->assertOk()->assertJsonPath('data.payment.status', Payment::PENDING);
+        $this->fakeHttp(['https://api.paymongo.test/v1/payment_intents/pi_fixture' => Http::response($this->intent('succeeded'))]);
+        $this->signed($this->event('evt-pending-bound', 'payment.paid', 'pay_other'))->assertOk()->assertJsonPath('data.duplicate', true);
+        $this->signed($this->event('evt-pending-bound', 'payment.failed'))->assertOk()->assertJsonPath('data.duplicate', true);
+        Http::assertNothingSent();
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(5, $product->inventory->fresh()->quantity);
+    }
+
     public function test_cash_key_cannot_block_a_later_verified_settlement(): void
     {
         $this->assertSeparateCashAndSettlementKeys(false);
