@@ -16,7 +16,7 @@ Run the one required repository check:
 composer verify
 ```
 
-Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`.
+Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`. CI also runs the SQLite-skipped MySQL-only idempotency-key migration and concurrency suites in [.github/workflows/mysql.yml](.github/workflows/mysql.yml).
 
 Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites. Read it before installing dependencies or troubleshooting unavailable test tools.
 

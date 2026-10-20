@@ -20,7 +20,7 @@
 
 ## Database checks
 
-- Schema/migration tests run under the in-memory SQLite connection configured in `phpunit.xml`; those checks do not prove MySQL-specific behavior.
+- Schema/migration tests run under the in-memory SQLite connection configured in `phpunit.xml`; those checks do not prove MySQL-specific behavior. `.github/workflows/mysql.yml` runs the SQLite-skipped idempotency-key migration and concurrency suites on pull requests and on pushes to `main`, `staging`, and `development` against a disposable MySQL 8.4 service; see [docs/TESTING.md](docs/TESTING.md#mysql-ci-job).
 - No non-destructive migration dry-run is configured. `migrate:fresh --seed` resets the selected database and is only safe against a disposable local database.
 - For MySQL-specific behavior, use the documented local MySQL connection and a disposable development database; see `docs/SETUP.md` and `DATABASE_GUIDE.md`.
 
