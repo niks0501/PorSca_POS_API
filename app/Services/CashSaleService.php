@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Domain\CheckoutRules;
+use App\Domain\UnsignedIntegerBound;
 use App\Exceptions\ApiException;
 use App\Exceptions\IdempotencyConflict;
 use App\Exceptions\InsufficientCash;
@@ -10,6 +12,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class CashSaleService
 {
@@ -17,6 +20,12 @@ class CashSaleService
 
     public function create(string $idempotencyKey, array $requestedItems, int $cashReceived): Sale
     {
+        if (! UnsignedIntegerBound::contains($cashReceived)) {
+            throw new ApiException('Invalid cash amount.', 422, [
+                'cash_received' => ['Cash must be within the supported integer centavo range.'],
+            ]);
+        }
+
         $items = $this->normalizeItems($requestedItems);
         $requestHash = hash('sha256', json_encode([
             'items' => $items,
@@ -65,11 +74,25 @@ class CashSaleService
 
             $total = 0;
             foreach ($items as $productId => $quantity) {
-                $total += $products->get($productId)->price * $quantity;
+                try {
+                    $total = CheckoutRules::lineTotal($total, $products->get($productId)->price, $quantity);
+                } catch (InvalidArgumentException) {
+                    throw new ApiException('Invalid sale total.', 422, [
+                        'total_amount' => ['The sale total must be within the supported integer centavo range.'],
+                    ]);
+                }
             }
 
             if ($cashReceived < $total) {
                 throw new InsufficientCash($cashReceived, $total);
+            }
+
+            try {
+                $changeAmount = UnsignedIntegerBound::difference($cashReceived, $total);
+            } catch (InvalidArgumentException) {
+                throw new ApiException('Invalid change amount.', 422, [
+                    'change_amount' => ['The change amount must be within the supported integer centavo range.'],
+                ]);
             }
 
             // Lock every inventory row in product-id order and validate it
@@ -79,7 +102,6 @@ class CashSaleService
                 $lockedInventory[$productId] = $this->stock->lockAndCheck($productId, $quantity, $products->get($productId)->name);
             }
 
-            $changeAmount = $cashReceived - $total;
             $sale = Sale::create([
                 'key_namespace' => Sale::CHECKOUT_NAMESPACE,
                 'idempotency_key' => $idempotencyKey,
