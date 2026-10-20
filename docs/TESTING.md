@@ -8,7 +8,7 @@ From the repository root run:
 composer verify
 ```
 
-Success means all Laravel feature and unit tests pass, followed by a clean Pint check. CI runs this same command in `.github/workflows/api.yml`; the separate `.github/workflows/newman.yml` workflow adds the HTTP-level collection run and sanitized report artifacts.
+Success means all Laravel feature and unit tests pass, followed by a clean Pint check. CI runs this same command in `.github/workflows/api.yml`; the separate `.github/workflows/newman.yml` workflow adds the HTTP-level collection run and sanitized report artifacts. Because `phpunit.xml` pins in-memory SQLite, 22 MySQL-only tests skip in this check; `.github/workflows/mysql.yml` runs them against a disposable MySQL service (see [MySQL CI job](#mysql-ci-job)).
 
 The Laravel tests cover:
 
@@ -40,13 +40,23 @@ See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and f
 
 ## MySQL concurrency regression
 
-`ReservationConcurrencyTest` and `SettlementConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
+`IdempotencyKeyMigrationTest`, `CheckoutAuthorityConcurrencyTest`, `ReservationConcurrencyTest`, `LegacyCheckoutKeyConcurrencyTest`, and `SettlementConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
 
 ```sh
-php artisan test --filter='(ReservationConcurrencyTest|SettlementConcurrencyTest)'
+php artisan test --filter='(IdempotencyKeyMigrationTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest|LegacyCheckoutKeyConcurrencyTest|SettlementConcurrencyTest)'
 ```
 
 These tests rebuild the selected database; never point them at staging or production. They use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm the competing transaction is waiting on that lock, then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+
+### MySQL CI job
+
+`.github/workflows/mysql.yml` runs every SQLite-skipped suite on pull requests and pushes to `main`, `staging`, and `development`, plus manual dispatch. It starts an ephemeral `mysql:8.4` service container (root with an empty password on `127.0.0.1:3306`, database `porsca_test`, destroyed with the runner), exports the `DB_*` variables over the SQLite defaults in `phpunit.xml`, confirms the connection, and then runs three PHPUnit steps:
+
+- required — `IdempotencyKeyMigrationTest`: the `harden_idempotency_keys` migration's `utf8mb4_bin` key collations, case-sensitive key uniqueness, and the `checkout_keys` rollback guard;
+- required — `CheckoutAuthorityConcurrencyTest` and `ReservationConcurrencyTest`: the v3 process-output barrier suites;
+- advisory (`continue-on-error: true`) — `LegacyCheckoutKeyConcurrencyTest` and `SettlementConcurrencyTest`.
+
+The advisory tier is deliberate. Those two classes guard real product protections and their behavior assertions pass on MySQL, but they confirm the wait through `information_schema.innodb_trx.trx_state = 'LOCK WAIT'`, and that read has been observed to omit a demonstrably waiting worker on MySQL 8.0 and 8.4 even while `processlist`, `performance_schema.data_locks`, and `SHOW ENGINE INNODB STATUS` all show the wait. This job reproduced it on GitHub-hosted MySQL 8.4.11: every settlement data set passed while all four legacy data sets failed at `LegacyCheckoutKeyConcurrencyTest.php:73`. A red advisory step therefore means the observer missed the wait, not that the protection failed; read the step output before treating it as a product defect. Promoting the tier to blocking requires a test-only barrier fix: the `performance_schema.data_locks` wait check, or the process-output `shared-lock-attempt:` barrier `CheckoutAuthorityConcurrencyTest` already uses.
 
 ## Postman collection
 
