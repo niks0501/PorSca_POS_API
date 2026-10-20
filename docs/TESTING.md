@@ -34,19 +34,37 @@ The Laravel tests cover:
 php artisan test --filter='(CheckoutAuthorityTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest)'
 ```
 
-These tests rebuild/truncate only the selected test database. The v3 concurrency tests issue real HTTP requests in independent processes under `REPEATABLE READ`, pause behind a parent-held product row lock, assert neither worker acquired the lock early, and release them to race. Different Cash keys cannot finalize twice; duplicate Cash keys return the same receipt; duplicate QR keys create one attempt/hold; duplicate paid refreshes create one sale/ledger/deduction; concurrent case updates accept one version and reject the stale writer. Provider I/O is asserted outside transactions. Unlike the existing settlement suite's exact `information_schema.innodb_trx` wait observer, this v3 barrier does not need a global MySQL PROCESS privilege.
+These tests rebuild/truncate only the selected test database. The v3 concurrency tests issue real HTTP requests in independent processes under `REPEATABLE READ`, pause behind a parent-held product row lock, assert neither worker acquired the lock early, and release them to race. Different Cash keys cannot finalize twice; duplicate Cash keys return the same receipt; duplicate QR keys create one attempt/hold; duplicate paid refreshes create one sale/ledger/deduction; concurrent case updates accept one version and reject the stale writer. Provider I/O is asserted outside transactions. Unlike the legacy settlement suite's `information_schema.innodb_trx` wait observer, which can miss a genuinely blocked contender (see the [lock-wait barrier caveat](#lock-wait-barrier-caveat)), this v3 barrier reads the workers' own process output and does not need a global MySQL PROCESS privilege.
 
 See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and fail-closed provider gates. The retained Newman collection exercises both the v2 compatibility surface and the v3 durable local workflow; exhaustive v3 proof remains in Feature tests.
 
-## MySQL concurrency regression
+## MySQL suites
 
-`ReservationConcurrencyTest` and `SettlementConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
+Five suites assert MySQL-only behavior and are skipped by the default in-memory SQLite suite, so neither `composer verify` nor the `verify` job in `.github/workflows/api.yml` (which installs only `pdo_sqlite`) exercises them: `IdempotencyKeyMigrationTest` (2 tests), `LegacyCheckoutKeyConcurrencyTest` (4 data sets), `ReservationConcurrencyTest` (2), `SettlementConcurrencyTest` (9 data sets), and `CheckoutAuthorityConcurrencyTest` (5). `composer verify` reports them as 22 skipped tests. Run them against MySQL whenever a change touches locking, settlement, reservation, or idempotency-key uniqueness.
+
+Both runs need a **disposable test database**: the suites rebuild or truncate whichever database the connection selects, so never point them at staging or production. The MySQL server must be reachable from a PHP build with the `pdo_mysql` extension, and the test account must be able to read other connections' transactions (`PROCESS` on `*.*`) for the legacy lock-wait barriers below. Set `DB_CONNECTION=mysql`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`; `phpunit.xml` supplies `sqlite` and `:memory:` as defaults without `force`, so exported values take precedence.
+
+### Idempotency-key and migration suites
 
 ```sh
-php artisan test --filter='(ReservationConcurrencyTest|SettlementConcurrencyTest)'
+php artisan test --filter='(IdempotencyKeyMigrationTest|SaleKeyNamespaceMigrationTest|IdempotencyKeyTest)'
 ```
 
-These tests rebuild the selected database; never point them at staging or production. They use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm the competing transaction is waiting on that lock, then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+Success: 9 tests pass (89 assertions on MySQL 8.4.11). `IdempotencyKeyMigrationTest` exercises `2026_10_17_000000_harden_idempotency_keys.php`: the `utf8mb4_bin` collation on `checkouts.creation_key`, `checkout_operations.key`, `sales.idempotency_key`, and `payments.idempotency_key`, the `checkout_keys` primary-key table, and the all-scopes rollback guard. `SaleKeyNamespaceMigrationTest` exercises `2026_10_08_120000_separate_sale_key_namespaces.php`. Only the MySQL run proves case-sensitive uniqueness, so the SQLite runs of `SaleKeyNamespaceMigrationTest` and `IdempotencyKeyTest` are not a substitute for it.
+
+### Concurrency suites
+
+```sh
+php artisan test --filter='(CheckoutAuthorityConcurrencyTest|LegacyCheckoutKeyConcurrencyTest|ReservationConcurrencyTest|SettlementConcurrencyTest)'
+```
+
+Expected: 20 tests (5 + 4 + 2 + 9). `CheckoutAuthorityConcurrencyTest` and `ReservationConcurrencyTest` pass on every MySQL run; the two legacy barriers can fail before they reach a behavior assertion, under the caveat below. The suites use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm the competing transaction is waiting on that lock, then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+
+### Lock-wait barrier caveat
+
+`LegacyCheckoutKeyConcurrencyTest` and `SettlementConcurrencyTest` confirm the race by polling `information_schema.innodb_trx` every 20 ms for 5 s until the contender's `trx_state` is `LOCK WAIT`. On MySQL 8.0.46 and 8.4.11 that read can return no row for a genuinely blocked Laravel worker, so the barrier times out and the suite fails before it reaches a behavior assertion: `LegacyCheckoutKeyConcurrencyTest` fails all 4 data sets with `Failed asserting that null is identical to 'LOCK WAIT'.`, and `SettlementConcurrencyTest` fails 1-2 of its 9 data sets with `Competing transaction did not wait on the held product lock.` on a set that varies between runs. These are a barrier-observability limitation, not evidence of a locking regression, and `composer verify` cannot catch them because both suites are skipped there.
+
+The wait itself is real and instrumented while the contender is blocked: `information_schema.processlist` shows the contender executing the `checkout_keys` upsert, `performance_schema.data_locks` and `data_lock_waits` show its `WAITING` X record lock, `events_transactions_current` shows the active `REPEATABLE READ` transaction, and `SHOW ENGINE INNODB STATUS` reports `LOCK WAIT` with `TRX HAS BEEN WAITING`. The same worker transaction is absent from `information_schema.innodb_trx` for the whole poll; the exact trigger is not isolated, and it does not reproduce with plain `mysql` clients or minimal PDO sessions running the same upsert. Read those server surfaces while the contender is blocked before treating a barrier failure as a product defect — those diagnostic reads need `SELECT` on the `performance_schema` tables, which the canonical runs do not. Swapping only the observation for `performance_schema.data_locks` `LOCK_STATUS='WAITING'` made all 13 tests pass with 335 assertions and no behavior-assertion changes, so the barrier replacement is tracked as a separate test change; until it lands, report these two failures as barrier misses rather than loosening the assertions or the lock-wait timeout.
 
 ## Postman collection
 
