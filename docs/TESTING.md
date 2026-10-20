@@ -20,7 +20,7 @@ The Laravel tests cover:
 - repeated idempotency keys
 - atomic paid settlement and stock deduction
 - failed and cancelled payments with no sale or deduction
-- signed and repeated webhooks
+- signed and repeated webhooks, including the same `payment.paid` event progressing from verified pending (or v3 uncorrelated evidence) to paid with one sale, ledger entry and stock deduction; terminal duplicates skip provider I/O
 - atomic cash sales, insufficient cash/stock, and idempotent retries
 - sandbox-only PayMongo behavior
 
