@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\UnsignedIntegerBound;
 use App\Models\Payment;
 use App\Models\Sale;
 use App\Services\CashSaleService;
@@ -37,6 +38,7 @@ class CheckoutController extends ApiController
                 Rule::requiredIf($input['payment_method'] === 'cash'),
                 'integer',
                 'min:0',
+                'max:'.UnsignedIntegerBound::MAX,
             ],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'integer', 'distinct', 'exists:products,id'],
