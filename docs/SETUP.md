@@ -99,6 +99,16 @@ composer verify
 
 Success means Laravel tests pass and Pint reports no formatting changes. The command clears cached config, runs `php artisan test`, then runs `vendor/bin/pint --test`.
 
+## Regenerate the Graphify snapshot
+
+After code changes, run from the repository root:
+
+```sh
+graphify update .
+```
+
+This generates `graphify-out/graph.json`, `graphify-out/graph.html`, and `graphify-out/GRAPH_REPORT.md`. The generated directory is ignored by Git and excluded from no-mistakes validation; do not commit these local snapshots.
+
 ## Useful commands
 
 Run only tests, show routes, or reset local data (both shells):
