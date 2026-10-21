@@ -1,4 +1,7 @@
 
+pr:
+  base_branch: development
+
 ignore_patterns:
   - "graphify-out/**"
 
