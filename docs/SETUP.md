@@ -101,7 +101,7 @@ Success means Laravel tests pass and Pint reports no formatting changes. The com
 
 ## Regenerate the Graphify snapshot
 
-After code changes, run from the repository root:
+Graphify is an optional local analysis tool, never required for setup or verification. If it is already installed, regenerate the snapshot after code changes from the repository root:
 
 ```sh
 graphify update .
