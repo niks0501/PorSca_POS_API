@@ -1,4 +1,10 @@
 
+pr:
+  base_branch: development
+
+ignore_patterns:
+  - "graphify-out/**"
+
 protected_paths:
   - ".no-mistakes.yaml"
   - "database/migrations/**"

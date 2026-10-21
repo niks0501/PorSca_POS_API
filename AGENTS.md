@@ -23,6 +23,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites. Read it before i
 ## Documentation map
 
 - Setup — [docs/SETUP.md](docs/SETUP.md)
+- Graphify snapshot regeneration; generated output stays untracked and out of validation — [docs/SETUP.md](docs/SETUP.md#regenerate-the-graphify-snapshot)
 - Windows 11 native Wi-Fi LAN development — [README.md](README.md#windows-11-native-wi-fi-lan-development)
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Staging on AWS Lightsail (SSH deploy on staging pushes) and promotion — [docs/STAGING.md](docs/STAGING.md)
