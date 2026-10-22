@@ -6,6 +6,7 @@ use App\Models\Inventory;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ProductManagementTest extends TestCase
@@ -19,6 +20,98 @@ class ProductManagementTest extends TestCase
         parent::setUp();
 
         $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
+    }
+
+    /** @return array<string, array{string}> */
+    public static function unsignedProductFields(): array
+    {
+        return [
+            'price' => ['price'],
+            'stock' => ['stock'],
+            'reorder_level' => ['reorder_level'],
+        ];
+    }
+
+    #[DataProvider('unsignedProductFields')]
+    public function test_product_create_rejects_values_above_the_unsigned_integer_max(string $field): void
+    {
+        $payload = [
+            'name' => 'Bounded Product',
+            'barcode' => '4800000001234',
+            'price' => 100,
+            'stock' => 5,
+            'reorder_level' => 2,
+        ];
+
+        $this->postJson('/api/v1/products', [...$payload, $field => 4294967296], $this->headers())
+            ->assertUnprocessable()
+            ->assertJsonPath('error.code', 'validation_error')
+            ->assertJsonStructure(['error' => ['details' => [$field]]]);
+
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('inventories', 0);
+    }
+
+    #[DataProvider('unsignedProductFields')]
+    public function test_product_edit_rejects_values_above_the_unsigned_integer_max(string $field): void
+    {
+        $product = Product::factory()->create(['barcode' => '4800000001234', 'price' => 100]);
+        $product->inventory()->create(['quantity' => 5, 'reorder_level' => 2]);
+
+        $this->patchJson('/api/v1/products/'.$product->id, [$field => 4294967296], $this->headers())
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => [$field]]]);
+
+        $this->assertDatabaseHas('products', ['id' => $product->id, 'price' => 100]);
+        $this->assertDatabaseHas('inventories', ['product_id' => $product->id, 'quantity' => 5, 'reorder_level' => 2]);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function unsignedStockFields(): array
+    {
+        return [
+            'stock' => ['stock', 'stock'],
+            'quantity alias' => ['quantity', 'stock'],
+            'reorder level' => ['reorder_level', 'reorder_level'],
+        ];
+    }
+
+    #[DataProvider('unsignedStockFields')]
+    public function test_stock_endpoint_rejects_values_above_the_unsigned_integer_max(string $field, string $errorField): void
+    {
+        $product = Product::factory()->create();
+        $product->inventory()->create(['quantity' => 5, 'reorder_level' => 2]);
+
+        $payload = $field === 'quantity' ? ['quantity' => 4294967296] : ['stock' => 5, $field => 4294967296];
+
+        $this->patchJson('/api/v1/inventory/'.$product->id, $payload, $this->headers())
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => [$errorField]]]);
+
+        $this->assertDatabaseHas('inventories', ['product_id' => $product->id, 'quantity' => 5, 'reorder_level' => 2]);
+    }
+
+    public function test_unsigned_integer_maximum_is_accepted_for_product_and_stock_writes(): void
+    {
+        $maximum = 4294967295;
+        $created = $this->postJson('/api/v1/products', [
+            'name' => 'Maximum Product',
+            'barcode' => '4800000001234',
+            'price' => $maximum,
+            'stock' => $maximum,
+            'reorder_level' => $maximum,
+        ], $this->headers())->assertCreated()
+            ->assertJsonPath('data.price', $maximum)
+            ->assertJsonPath('data.stock.quantity', $maximum)
+            ->assertJsonPath('data.stock.reorder_level', $maximum);
+
+        $productId = $created->json('data.id');
+        $this->patchJson('/api/v1/products/'.$productId.'/stock', [
+            'stock' => $maximum,
+            'reorder_level' => $maximum,
+        ], $this->headers())->assertOk()
+            ->assertJsonPath('data.stock.quantity', $maximum)
+            ->assertJsonPath('data.stock.reorder_level', $maximum);
     }
 
     public function test_authorized_user_can_create_a_product_and_inventory_together(): void

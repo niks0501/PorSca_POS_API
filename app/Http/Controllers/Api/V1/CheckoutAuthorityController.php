@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\UnsignedIntegerBound;
 use App\Exceptions\ApiException;
 use App\Models\Checkout;
 use App\Models\Payment;
@@ -124,10 +125,10 @@ class CheckoutAuthorityController extends ApiController
         $key = $this->key($request);
         $rules = [
             'revision' => ['required', 'integer', $this->integerRule(), 'min:1'],
-            'acceptedAmountCentavos' => ['required', 'integer', $this->integerRule(), 'min:0', 'max:4294967295'],
+            'acceptedAmountCentavos' => ['required', 'integer', $this->integerRule(), 'min:0', 'max:'.UnsignedIntegerBound::MAX],
         ];
         if ($kind === 'cash') {
-            $rules['cashReceivedCentavos'] = ['required', 'integer', $this->integerRule(), 'min:0', 'max:4294967295'];
+            $rules['cashReceivedCentavos'] = ['required', 'integer', $this->integerRule(), 'min:0', 'max:'.UnsignedIntegerBound::MAX];
         }
         [$result, $created] = $this->authority->tender($checkout, $key, $kind, $request->validate($rules), $request->user());
 

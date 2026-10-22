@@ -19,6 +19,7 @@
 /public/hot
 /public/storage
 /reports/
+/graphify-out/
 /storage/*.key
 /storage/pail
 /vendor

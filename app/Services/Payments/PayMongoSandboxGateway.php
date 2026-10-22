@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Contracts\PaymentGateway;
+use App\Domain\UnsignedIntegerBound;
 use App\Exceptions\PaymentGatewayException;
 use App\Models\Payment;
 use Illuminate\Http\Client\ConnectionException;
@@ -24,7 +25,7 @@ class PayMongoSandboxGateway implements PaymentGateway
                 'metadata' => ['driver' => 'local-sandbox-fixture', 'payment_method' => 'qrph'],
             ];
         }
-        if (! str_starts_with($secret, 'sk_test_') || $payment->amount < 1 || $payment->amount > 4294967295 || $payment->currency !== 'PHP' || blank($payment->provider_operation_key)) {
+        if (! str_starts_with($secret, 'sk_test_') || $payment->amount < 1 || $payment->amount > UnsignedIntegerBound::MAX || $payment->currency !== 'PHP' || blank($payment->provider_operation_key)) {
             throw new PaymentGatewayException('Invalid sandbox payment configuration.');
         }
 

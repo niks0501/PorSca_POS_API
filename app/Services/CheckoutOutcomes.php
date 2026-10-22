@@ -40,13 +40,17 @@ class CheckoutOutcomes
             $this->stock->lockSettlementResources($payment->items()->orderBy('product_id')->pluck('product_id')->all());
             $checkout = Checkout::whereKey($payment->checkout_id)->lockForUpdate()->firstOrFail();
             $payment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
-            if ($eventId !== null && $checkout->events()->where('payment_id', $payment->id)
-                ->where('type', 'provider_observed')->where('evidence->eventId', $eventId)
-                ->where('evidence->verified', true)->lockForUpdate()->exists()) {
-                return $payment;
-            }
             $status = $inspection['status'] ?? null;
             $classification = CheckoutRules::observation($inspection);
+            // Pending is accepted evidence, but cannot consume an event's terminal
+            // outcome. Only terminal evidence (or another pending read) deduplicates it.
+            if ($eventId !== null && $checkout->events()->where('payment_id', $payment->id)
+                ->where('type', 'provider_observed')->where('evidence->eventId', $eventId)
+                ->where('evidence->verified', true)
+                ->when($classification !== 'pending', fn ($query) => $query->whereIn('evidence->outcome', Payment::terminalStatuses()))
+                ->lockForUpdate()->exists()) {
+                return $payment;
+            }
             $specific = ($inspection['attempt_specific'] ?? false) === true;
             $accepted = $classification !== 'unknown';
             // Persist an allow-list, never raw provider data, URLs, credentials or client keys.

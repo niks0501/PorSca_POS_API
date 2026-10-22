@@ -1,0 +1,94 @@
+name: MySQL checks
+
+on:
+  pull_request:
+    branches: [main, staging, development]
+  push:
+    branches: [main, staging, development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mysql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mysql:
+    name: MySQL-only suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          # Throwaway container: no credential is stored or reused anywhere.
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: porsca_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      # Overrides the non-forced SQLite defaults in phpunit.xml.
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_DATABASE: porsca_test
+      DB_USERNAME: root
+      DB_PASSWORD: ''
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, pdo_mysql
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Confirm the disposable MySQL connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+              $pdo = new PDO(
+                  sprintf("mysql:host=%s;port=%s;dbname=%s", getenv("DB_HOST"), getenv("DB_PORT"), getenv("DB_DATABASE")),
+                  getenv("DB_USERNAME"),
+                  getenv("DB_PASSWORD"),
+              );
+              echo "server=", $pdo->query("SELECT VERSION()")->fetchColumn(),
+                  " database=", $pdo->query("SELECT DATABASE()")->fetchColumn(),
+                  " driver=", $pdo->getAttribute(PDO::ATTR_DRIVER_NAME), PHP_EOL;
+          '
+
+      # --fail-on-skipped keeps a broken DB wiring from passing as an all-skip run.
+      - name: Idempotency-key migration suite (SQLite skips this)
+        run: >-
+          vendor/bin/phpunit --testdox --display-skipped --fail-on-skipped --colors=never
+          --filter='IdempotencyKeyMigrationTest'
+
+      - name: Concurrency suites (SQLite skips these)
+        run: >-
+          vendor/bin/phpunit --testdox --display-skipped --fail-on-skipped --colors=never
+          --filter='(CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest)'
+
+      # Advisory: both classes guard real product behavior that passes on MySQL and
+      # observe their contender's key-lock wait through Performance Schema, which
+      # needs SELECT on those tables and no PROCESS privilege. Keep the evidence
+      # visible without blocking PRs until a separate workflow change promotes the
+      # tier (see docs/TESTING.md).
+      - name: Legacy checkout-key and settlement concurrency suites (advisory, non-blocking)
+        continue-on-error: true
+        run: >-
+          vendor/bin/phpunit --testdox --display-skipped --fail-on-skipped --colors=never
+          --filter='(LegacyCheckoutKeyConcurrencyTest|SettlementConcurrencyTest)'

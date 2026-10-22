@@ -8,7 +8,7 @@ From the repository root run:
 composer verify
 ```
 
-Success means all Laravel feature and unit tests pass, followed by a clean Pint check. CI runs this same command in `.github/workflows/api.yml`; the separate `.github/workflows/newman.yml` workflow adds the HTTP-level collection run and sanitized report artifacts.
+Success means all Laravel feature and unit tests pass, followed by a clean Pint check. CI runs this same command in `.github/workflows/api.yml`; the separate `.github/workflows/newman.yml` workflow adds the HTTP-level collection run and sanitized report artifacts. Because `phpunit.xml` pins in-memory SQLite, 22 MySQL-only tests skip in this check; `.github/workflows/mysql.yml` runs them against a disposable MySQL service (see [MySQL CI job](#mysql-ci-job)).
 
 The Laravel tests cover:
 
@@ -20,7 +20,7 @@ The Laravel tests cover:
 - repeated idempotency keys
 - atomic paid settlement and stock deduction
 - failed and cancelled payments with no sale or deduction
-- signed and repeated webhooks
+- signed and repeated webhooks, including the same `payment.paid` event progressing from verified pending (or v3 uncorrelated evidence) to paid with one sale, ledger entry and stock deduction; terminal duplicates skip provider I/O
 - atomic cash sales, insufficient cash/stock, and idempotent retries
 - sandbox-only PayMongo behavior
 
@@ -34,23 +34,45 @@ The Laravel tests cover:
 php artisan test --filter='(CheckoutAuthorityTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest)'
 ```
 
-These tests rebuild/truncate only the selected test database. The v3 concurrency tests issue real HTTP requests in independent processes under `REPEATABLE READ`, pause behind a parent-held product row lock, assert neither worker acquired the lock early, and release them to race. Different Cash keys cannot finalize twice; duplicate Cash keys return the same receipt; duplicate QR keys create one attempt/hold; duplicate paid refreshes create one sale/ledger/deduction; concurrent case updates accept one version and reject the stale writer. Provider I/O is asserted outside transactions. Unlike the existing settlement suite's exact `information_schema.innodb_trx` wait observer, this v3 barrier does not need a global MySQL PROCESS privilege.
+These tests rebuild/truncate only the selected test database. The v3 concurrency tests issue real HTTP requests in independent processes under `REPEATABLE READ`, pause behind a parent-held product row lock, assert neither worker acquired the lock early, and release them to race. Different Cash keys cannot finalize twice; duplicate Cash keys return the same receipt; duplicate QR keys create one attempt/hold; duplicate paid refreshes create one sale/ledger/deduction; concurrent case updates accept one version and reject the stale writer. Provider I/O is asserted outside transactions. This v3 barrier reads the workers' own process output and does not need a global MySQL PROCESS privilege; the settlement and legacy suites observe their contenders through Performance Schema key-lock waits instead (see [MySQL suites](#mysql-suites)).
 
 See [CHECKOUT-CONTRACT.md](CHECKOUT-CONTRACT.md) for the exact v3 contract and fail-closed provider gates. The retained Newman collection exercises both the v2 compatibility surface and the v3 durable local workflow; exhaustive v3 proof remains in Feature tests.
 
-## MySQL concurrency regression
+## MySQL suites
 
-`ReservationConcurrencyTest`, `SettlementConcurrencyTest` and `LegacyCheckoutKeyConcurrencyTest` require MySQL and are skipped by the default in-memory SQLite suite. Against a **disposable test database**, set `DB_CONNECTION=mysql`, `DB_DATABASE`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD`, then run:
+Five suites assert MySQL-only behavior and are skipped by the default in-memory SQLite suite, so neither `composer verify` nor the `verify` job in `.github/workflows/api.yml` (which installs only `pdo_sqlite`) exercises them: `IdempotencyKeyMigrationTest` (2 tests), `LegacyCheckoutKeyConcurrencyTest` (4 data sets), `ReservationConcurrencyTest` (2), `SettlementConcurrencyTest` (9 data sets), and `CheckoutAuthorityConcurrencyTest` (5). `composer verify` reports them as 22 skipped tests. Run them against MySQL whenever a change touches locking, settlement, reservation, or idempotency-key uniqueness.
+
+Both runs need a **disposable test database**: the suites rebuild or truncate whichever database the connection selects, so never point them at staging or production. The MySQL server must be reachable from a PHP build with the `pdo_mysql` extension, and the test account needs privileges for the lock-wait barriers it exercises: `SettlementConcurrencyTest` and `LegacyCheckoutKeyConcurrencyTest` read `performance_schema.data_locks`, `data_lock_waits`, and `threads`, so they need `SELECT` on `performance_schema` and no `PROCESS` privilege. Set `DB_CONNECTION=mysql`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD`; `phpunit.xml` supplies `sqlite` and `:memory:` as defaults without `force`, so exported values take precedence.
+
+### Idempotency-key and migration suites
 
 ```sh
-php artisan test --filter='(ReservationConcurrencyTest|SettlementConcurrencyTest|LegacyCheckoutKeyConcurrencyTest)'
+php artisan test --filter='(IdempotencyKeyMigrationTest|SaleKeyNamespaceMigrationTest|IdempotencyKeyTest)'
 ```
 
-These tests rebuild the selected database; never point them at staging or production. They use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm through `information_schema.innodb_trx` that the competing transaction is waiting on that lock (the test user needs the `PROCESS` privilege to see another session's transaction), then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. `LegacyCheckoutKeyConcurrencyTest` races the same public key with opposed tender methods and observes the contender through `performance_schema.data_lock_waits`, `data_locks` and `threads`, so the test user also needs `SELECT` on those three Performance Schema tables. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+Success: 9 tests pass (89 assertions on MySQL 8.4.11). `IdempotencyKeyMigrationTest` exercises `2026_10_17_000000_harden_idempotency_keys.php`: the `utf8mb4_bin` collation on `checkouts.creation_key`, `checkout_operations.key`, `sales.idempotency_key`, and `payments.idempotency_key`, the `checkout_keys` primary-key table, and the all-scopes rollback guard. `SaleKeyNamespaceMigrationTest` exercises `2026_10_08_120000_separate_sale_key_namespaces.php`. Only the MySQL run proves case-sensitive uniqueness, so the SQLite runs of `SaleKeyNamespaceMigrationTest` and `IdempotencyKeyTest` are not a substitute for it.
+
+### Concurrency suites
+
+```sh
+php artisan test --filter='(CheckoutAuthorityConcurrencyTest|LegacyCheckoutKeyConcurrencyTest|ReservationConcurrencyTest|SettlementConcurrencyTest)'
+```
+
+Expected: 20 tests (5 + 4 + 2 + 9). `CheckoutAuthorityConcurrencyTest` and `ReservationConcurrencyTest` pass on every MySQL run. `SettlementConcurrencyTest` observes its contender's `products` primary-key wait through Performance Schema and passes without any `PROCESS` privilege. `LegacyCheckoutKeyConcurrencyTest` observes its contender's `checkout_keys` primary-key wait the same way, so it needs `SELECT` on those Performance Schema tables and no `PROCESS` privilege. The suites use independent processes/connections under `REPEATABLE READ`. Settlement tests hold the shared product lock in one actor, confirm the competing transaction is waiting on that lock, then release the holder. Both actors must return HTTP 200 with one transaction attempt, proving lock-order prevention rather than deadlock recovery; bounded outer transaction retries remain containment. The tests check atomic sales, ledger rows, stock and webhook processing. Refresh, signed webhook and both stock-edit controller paths are covered; provider inspection is faked and must remain outside the retried transaction.
+
+### MySQL CI job
+
+`.github/workflows/mysql.yml` runs the SQLite-skipped suites (22 tests across the five classes above) on pull requests and pushes to `main`, `staging`, and `development`, plus manual dispatch. It starts an ephemeral `mysql:8.4` service container (root with an empty password on `127.0.0.1:3306`, database `porsca_test`, destroyed with the runner), exports the `DB_*` variables over the SQLite defaults in `phpunit.xml`, confirms the connection, and then runs three PHPUnit steps:
+
+- required — `IdempotencyKeyMigrationTest`: the `harden_idempotency_keys` migration's `utf8mb4_bin` key collations, case-sensitive key uniqueness, and the `checkout_keys` rollback guard;
+- required — `CheckoutAuthorityConcurrencyTest` and `ReservationConcurrencyTest`: the v3 process-output barrier suites;
+- advisory (`continue-on-error: true`) — `LegacyCheckoutKeyConcurrencyTest` and `SettlementConcurrencyTest`.
+
+The advisory tier is deliberate. Those two classes guard real product protections and their behavior assertions pass on MySQL; both observe their contender's key-lock wait through `performance_schema.data_lock_waits`, `data_locks`, and `threads`, so a red step means the observer missed the wait, not that the protection failed. Read the step output before treating it as a product defect. Promoting the tier to blocking needs a separate workflow change.
 
 ## Postman collection
 
-The collection runs the HTTP contract in order: health environment gate, admin login (also signing in the cashier once for the role checks), missing-token 401 on a catalog read, managed-product creation/editing/stock update, cash sale with idempotent retry and pinned total/cash/change echo, cashier-token 403 on product creation, cash-below-total 422 with a follow-up inventory read proving the rejected sale left stock at 7, unknown-product 422, catalog products with the seeded prices pinned, name search, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook, payment read again, sales history with exactly one completed cash sale, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote math, pending attempt, held reservation, and the completed cash sale's total, cash received, and change.
+The collection runs the HTTP contract in order: health environment gate, admin login (also signing in the cashier once for the role checks), invalid-credential and missing-token 401 checks, managed-product creation/editing/stock update, field-validation 422, cash sale with idempotent retry and pinned total/cash/change echo, plus nested stock checks proving one deduction and stock-short rollback, cashier-token 403 on product creation, cash-below-total 422 with a follow-up inventory read proving the rejected sale left stock at 7, unknown-product 422, catalog products with the seeded prices pinned, matching and empty name searches, barcode lookup, unknown-barcode handling, inventory state/filter checks, QR practice checkout and payment read, signed practice webhook rejection of unsupported settlement, invalid-signature and duplicate-event webhook checks, failed-payment practice checkout and webhook with no sale or stock change, payment read again, sales history with exactly one completed cash sale, and transactions. It then runs the Checkout V3 durable local workflow folder: contract/session discovery, unknown-checkout 404, cash and QR checkout creation, cash tender acceptance and replay, attempt and reservation reads, local QR attempt refresh, and checkout abandonment, asserting the v3 contract version, quote math, pending attempt, held reservation, and the completed cash sale's total, cash received, and change.
 
 ### Automated report
 
@@ -106,7 +128,7 @@ npx newman run postman/PorSca-API.postman_collection.json \
   --env-var webhook_secret="$PAYMONGO_WEBHOOK_SECRET"
 ```
 
-Success: all 44 collection requests and every assertion pass; Newman's summary counts 46 HTTP requests because the admin login and the insufficient-cash stock check each add a nested `pm.sendRequest`. The login request (second after the Health gate) signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`; the same request also signs in with `cashier_email` and `cashier_password` and captures the cashier token into `{{cashier_token}}`. No cashier is seeded, so create the standing cashier with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` (plus `ADMIN_PASSWORD` from your local `.env`) before the run. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, verifies invalid and duplicate webhook behavior, and pins the seeded prices, stock, and cash totals. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
+Success: all 49 collection requests and every assertion pass; Newman's summary counts 56 HTTP requests because seven nested `pm.sendRequest` calls verify cashier login, sale/retry and rejection stock state, and failed-webhook stock state. The login request (second after the Health gate) signs in with `admin_email` and `admin_password` and captures the returned token into `{{token}}`; the same request also signs in with `cashier_email` and `cashier_password` and captures the cashier token into `{{cashier_token}}`. No cashier is seeded, so create the standing cashier with the [QA accounts recipe](QA-CYCLE.md#qa-accounts) and export `QA_CASHIER_PASSWORD` (plus `ADMIN_PASSWORD` from your local `.env`) before the run. The seeded database must be fresh before this run because the collection creates a managed product, completes a cash sale and retry, proves a QR Ph practice fixture cannot be marked paid by a forged status, verifies invalid and duplicate webhook behavior, and pins the seeded prices, stock, and cash totals. Real paid/failed settlement requires operator-owned PayMongo test credentials and a stable registered HTTPS webhook; use the deterministic faked-HTTP feature suite until those are available. Never scan/pay a test-mode QR; only the operator may use the provider simulator URL.
 
 Two collection safeguards protect the run:
 

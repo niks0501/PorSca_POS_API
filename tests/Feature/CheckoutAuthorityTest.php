@@ -9,8 +9,10 @@ use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ReconciliationCase;
 use App\Models\User;
+use App\Services\CheckoutOutcomes;
 use App\Services\Payments\PayMongoSandboxGateway;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -433,6 +435,100 @@ class CheckoutAuthorityTest extends TestCase
         $this->assertSame(4, $product->inventory->fresh()->quantity);
     }
 
+    public function test_signed_paid_redelivery_advances_pending_and_uncorrelated_observations_to_one_sale(): void
+    {
+        $product = $this->product();
+        $checkout = $this->qr($this->start($product));
+        $attempt = Payment::findOrFail($checkout['attempts'][0]['id']);
+        config(['services.paymongo.webhook_secret' => 'webhook-fixture']);
+        $payload = json_encode(['data' => ['id' => 'evt_pending_then_paid', 'attributes' => ['type' => 'payment.paid',
+            'data' => ['id' => $attempt->provider_method_id]]]]);
+        $stamp = now()->timestamp;
+        $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
+            'HTTP_PAYMONGO_SIGNATURE' => 't='.$stamp.',te='.hash_hmac('sha256', $stamp.'.'.$payload, 'webhook-fixture')];
+        $deliver = fn () => $this->call('POST', '/api/v1/webhooks/paymongo', [], [], [], $headers, $payload);
+        $baseline = $this->gateway->inspections;
+        $deliver()->assertOk()->assertJsonPath('data.payment.status', Payment::PENDING);
+        $deliver()->assertOk()->assertJsonPath('data.duplicate', true);
+        $this->assertSame(1, CheckoutEvent::where('type', 'provider_observed')->count());
+        // Verified intent-level paid is not sufficient for linked-v3 finality.
+        $this->gateway->inspection = ['verified' => true, 'status' => 'paid'];
+        $deliver()->assertOk()->assertJsonPath('data.payment.status', Payment::PENDING);
+        $this->assertNull($attempt->fresh()->first_verified_outcome);
+        $this->assertDatabaseCount('sales', 0);
+        $this->getJson('/api/v1/checkouts/'.$checkout['id'], $this->headers)->assertOk()
+            ->assertJsonPath('data.state', 'payment_unresolved')->assertJsonPath('data.attempts.0.status', 'unknown');
+        $this->verified('paid');
+        $deliver()->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.status', Payment::PAID);
+        $saleId = $attempt->fresh()->sale_id;
+        $this->assertNotNull($saleId);
+        $deliver()->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.sale_id', $saleId);
+        $this->assertSame($baseline + 4, $this->gateway->inspections);
+        $this->assertSame(array_fill(0, 4, DB::transactionLevel()), array_slice($this->gateway->inspectionTransactionLevels, $baseline));
+        $this->getJson('/api/v1/checkouts/'.$checkout['id'], $this->headers)->assertOk()
+            ->assertJsonPath('data.state', 'completed')->assertJsonPath('data.sale.id', $saleId);
+        $this->assertDatabaseCount('sales', 1);
+        $this->assertDatabaseCount('sale_items', 1);
+        $this->assertDatabaseCount('webhook_events', 1);
+        $this->assertDatabaseHas('transactions', ['type' => 'payment_succeeded', 'provider_event_id' => 'evt_pending_then_paid']);
+        $this->assertSame(1, $attempt->transactions()->where('type', 'payment_succeeded')->count());
+        $this->assertSame(3, CheckoutEvent::where('type', 'provider_observed')->count());
+        $this->assertSame(4, $product->inventory->fresh()->quantity);
+    }
+
+    public function test_outcomes_dedupe_terminal_evidence_but_not_an_earlier_pending_observation(): void
+    {
+        $product = $this->product();
+        $checkout = $this->qr($this->start($product));
+        $attempt = Payment::findOrFail($checkout['attempts'][0]['id']);
+        $outcomes = app(CheckoutOutcomes::class);
+        $outcomes->observe($attempt, ['verified' => true, 'status' => 'pending'], 'evt_outcome_progress');
+        $this->verified('paid');
+        $paid = $outcomes->observe($attempt, $this->gateway->inspection, 'evt_outcome_progress');
+        $this->assertSame(Payment::PAID, $paid->status);
+        $this->assertNotNull($paid->sale_id);
+        $this->verified('failed', true);
+        $replay = $outcomes->observe($attempt, $this->gateway->inspection, 'evt_outcome_progress');
+        $this->assertSame($paid->sale_id, $replay->sale_id);
+        $this->assertSame('paid', $replay->first_verified_outcome);
+        $this->assertSame('paid', $replay->verification_state);
+        $this->assertDatabaseCount('sales', 1);
+        $this->assertDatabaseCount('reconciliation_cases', 0);
+        $this->assertSame(2, CheckoutEvent::where('type', 'provider_observed')->count());
+        $this->assertSame(1, $attempt->transactions()->where('type', 'payment_succeeded')->count());
+        $this->assertSame(4, $product->inventory->fresh()->quantity);
+    }
+
+    public function test_paid_redelivery_stops_at_paid_unfulfilled_without_bypassing_reconciliation(): void
+    {
+        $product = $this->product();
+        $checkout = $this->qr($this->start($product));
+        $attempt = Payment::findOrFail($checkout['attempts'][0]['id']);
+        config(['services.paymongo.webhook_secret' => 'webhook-fixture']);
+        $payload = json_encode(['data' => ['id' => 'evt_pending_unfulfilled', 'attributes' => ['type' => 'payment.paid',
+            'data' => ['id' => $attempt->provider_payment_id]]]]);
+        $deliver = function () use ($payload) {
+            $stamp = time();
+
+            return $this->call('POST', '/api/v1/webhooks/paymongo', [], [], [], [
+                'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
+                'HTTP_PAYMONGO_SIGNATURE' => 't='.$stamp.',te='.hash_hmac('sha256', $stamp.'.'.$payload, 'webhook-fixture'),
+            ], $payload);
+        };
+        $deliver()->assertOk();
+        $this->travel(31)->minutes();
+        $product->inventory()->update(['quantity' => 0]);
+        $this->verified('paid');
+        $deliver()->assertOk()->assertJsonPath('data.payment.status', Payment::PAID_UNFULFILLED);
+        $inspections = $this->gateway->inspections;
+        $deliver()->assertOk()->assertJsonPath('data.duplicate', true)->assertJsonPath('data.payment.status', Payment::PAID_UNFULFILLED);
+        $this->assertSame($inspections, $this->gateway->inspections);
+        $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('reconciliation_cases', 1);
+        $this->assertSame(1, $attempt->transactions()->where('type', 'payment_paid_unfulfilled')->count());
+        $this->assertSame(0, $product->inventory->fresh()->quantity);
+    }
+
     public function test_real_adapter_fails_closed_on_unapproved_or_uncorrelated_finality(): void
     {
         $checkout = $this->qr($this->start());
@@ -527,6 +623,10 @@ class CheckoutAuthorityTest extends TestCase
 /** Executable authority seam fixture; never a production simulator. */
 class CheckoutTestGateway implements PaymentGateway
 {
+    public int $inspections = 0;
+
+    public array $inspectionTransactionLevels = [];
+
     public bool $transportFailure = false;
 
     public bool $creationFailure = false;
@@ -546,6 +646,8 @@ class CheckoutTestGateway implements PaymentGateway
 
     public function inspect(Payment $payment): array
     {
+        $this->inspections++;
+        $this->inspectionTransactionLevels[] = DB::transactionLevel();
         if ($this->transportFailure) {
             throw new PaymentGatewayException('Fixture verification timeout.');
         }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\PaymentGateway;
+use App\Domain\CheckoutRules;
 use App\Exceptions\ApiException;
 use App\Exceptions\IdempotencyConflict;
 use App\Models\Payment;
@@ -10,6 +11,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 class CheckoutService
 {
@@ -45,11 +47,15 @@ class CheckoutService
             $total = 0;
             foreach ($items as $productId => $quantity) {
                 $product = $products->get($productId);
-                if ($product->currency !== 'PHP' || $product->price < 1 || $quantity > intdiv(4294967295, $product->price) || $total > 4294967295 - $product->price * $quantity) {
+                if ($product->currency !== 'PHP' || $product->price < 1) {
+                    throw new ApiException('Invalid PHP payment amount.', 422, ['amount' => ['Positive PHP centavos within provider limits are required.']]);
+                }
+                try {
+                    $total = CheckoutRules::lineTotal($total, $product->price, $quantity);
+                } catch (InvalidArgumentException) {
                     throw new ApiException('Invalid PHP payment amount.', 422, ['amount' => ['Positive PHP centavos within provider limits are required.']]);
                 }
                 $this->stock->lockAndCheck($productId, $quantity, $product->name);
-                $total += $product->price * $quantity;
             }
             $payment = Payment::create([
                 'idempotency_key' => $idempotencyKey, 'request_hash' => $requestHash,

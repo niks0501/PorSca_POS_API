@@ -16,13 +16,14 @@ Run the one required repository check:
 composer verify
 ```
 
-Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`.
+Required even for documentation-only PRs; task-specific greps and `git diff --check` do not replace `composer verify`. CI also runs the SQLite-skipped MySQL-only idempotency-key migration and concurrency suites in [.github/workflows/mysql.yml](.github/workflows/mysql.yml).
 
 Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites. Read it before installing dependencies or troubleshooting unavailable test tools.
 
 ## Documentation map
 
 - Setup — [docs/SETUP.md](docs/SETUP.md)
+- Graphify snapshot regeneration; generated output stays untracked and out of validation — [docs/SETUP.md](docs/SETUP.md#regenerate-the-graphify-snapshot)
 - Windows 11 native Wi-Fi LAN development — [README.md](README.md#windows-11-native-wi-fi-lan-development)
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Staging on AWS Lightsail (manual SSH deploy for the staging ref) and promotion — [docs/STAGING.md](docs/STAGING.md)

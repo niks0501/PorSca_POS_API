@@ -42,8 +42,7 @@ class WebhookService
             return ['event' => $event, 'duplicate' => ! $event->wasRecentlyCreated, 'payment' => null];
         }
         $event = WebhookEvent::where('provider_event_id', $eventId)->first();
-        if ($event !== null && (($event->payload['resource_id'] ?? null) !== $providerId || $event->event_type !== $type
-            || ! in_array($event->processing_error, ['provider_mismatch', 'payment_not_found'], true))) {
+        if ($event !== null && (($event->payload['resource_id'] ?? null) !== $providerId || $event->event_type !== $type)) {
             return $this->result($event, true);
         }
         $payment = Payment::query()->where('provider_payment_id', $providerId)
@@ -56,6 +55,15 @@ class WebhookService
                 ->whereNull('provider_resource_id')->first();
             $usingLinkedIntent = $payment !== null;
         }
+        // Acknowledged delivery is not financial finality. Reinspect matching paid
+        // redeliveries while unresolved, including events recorded before this rule.
+        if ($event !== null && ! in_array($event->processing_error, ['provider_mismatch', 'payment_not_found'], true)
+            && ($type !== 'payment.paid' || ! $this->awaitsPaidOutcome($payment))) {
+            return $this->result($event, true);
+        }
+        // Previously acknowledged pending deliveries are duplicates; retain the
+        // existing retry response for failed verification or an unknown payment.
+        $duplicate = $event !== null && ! in_array($event->processing_error, ['provider_mismatch', 'payment_not_found'], true);
         // Provider GET is deliberately outside any database transaction. An event's status,
         // amount and currency are not trusted as authorization to sell.
         try {
@@ -110,7 +118,18 @@ class WebhookService
             return $this->result(WebhookEvent::where('provider_event_id', $eventId)->firstOrFail(), true);
         }
 
-        return $this->result($event, false);
+        return $this->result($event, $duplicate);
+    }
+
+    private function awaitsPaidOutcome(?Payment $payment): bool
+    {
+        if ($payment === null) {
+            return false;
+        }
+
+        return $payment->checkout_id === null
+            ? ! in_array($payment->status, [Payment::PAID, Payment::PAID_UNFULFILLED], true)
+            : $payment->first_verified_outcome === null;
     }
 
     private function result(WebhookEvent $event, bool $duplicate): array
