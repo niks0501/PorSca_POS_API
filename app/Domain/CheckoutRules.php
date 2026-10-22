@@ -2,8 +2,6 @@
 
 namespace App\Domain;
 
-use InvalidArgumentException;
-
 /** Pure authority rules: no device, database, provider I/O or framework dependency. */
 final class CheckoutRules
 {
@@ -42,11 +40,6 @@ final class CheckoutRules
 
     public static function lineTotal(int $total, int $unitPrice, int $quantity): int
     {
-        if ($total < 0 || $total > 4294967295 || $unitPrice < 0 || $quantity < 1
-            || $quantity > intdiv(4294967295, max(1, $unitPrice)) || $total > 4294967295 - $unitPrice * $quantity) {
-            throw new InvalidArgumentException('Amount exceeds supported integer centavo range.');
-        }
-
-        return $total + $unitPrice * $quantity;
+        return UnsignedIntegerBound::add($total, $unitPrice, $quantity);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\UnsignedIntegerBound;
 use App\Models\Inventory;
 use App\Models\Product;
 use App\Services\ReservedStock;
@@ -152,8 +153,8 @@ class ProductController extends ApiController
         }
 
         $validated = Validator::make($input, [
-            'stock' => ['required', 'integer', 'min:0'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            'stock' => ['required', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
+            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
         ])->validate();
 
         // Retry the outer edit, not just its reservation read or inventory write.
@@ -213,9 +214,9 @@ class ProductController extends ApiController
             'name' => ['required', 'string', 'max:255'],
             'category' => ['sometimes', 'nullable', 'string', 'max:100'],
             'description' => ['sometimes', 'nullable', 'string'],
-            'price' => ['required', 'integer', 'min:0'],
-            'stock' => ['required', 'integer', 'min:0'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            'price' => ['required', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
+            'stock' => ['required', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
+            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
         ];
     }
 
@@ -228,9 +229,9 @@ class ProductController extends ApiController
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'category' => ['sometimes', 'nullable', 'string', 'max:100'],
             'description' => ['sometimes', 'nullable', 'string'],
-            'price' => ['sometimes', 'required', 'integer', 'min:0'],
-            'stock' => ['sometimes', 'required', 'integer', 'min:0'],
-            'reorder_level' => ['sometimes', 'integer', 'min:0'],
+            'price' => ['sometimes', 'required', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
+            'stock' => ['sometimes', 'required', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
+            'reorder_level' => ['sometimes', 'integer', 'min:0', 'max:'.UnsignedIntegerBound::MAX],
         ];
     }
 

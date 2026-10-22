@@ -257,12 +257,22 @@ class SettlementConcurrencyTest extends TestCase
     {
         $deadline = microtime(true) + 5;
         do {
-            $transaction = DB::selectOne(
-                'SELECT trx_state, trx_query FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ?',
+            // A contender blocked on its first write can be absent from
+            // innodb_trx. Observe the actual key-lock wait instead; the
+            // test user needs SELECT on these three Performance Schema tables.
+            $lockWait = DB::selectOne(
+                'SELECT waiting.ENGINE_LOCK_ID
+                 FROM performance_schema.data_lock_waits AS waits
+                 JOIN performance_schema.threads AS threads ON threads.THREAD_ID = waits.REQUESTING_THREAD_ID
+                 JOIN performance_schema.data_locks AS waiting
+                   ON waiting.ENGINE = waits.ENGINE AND waiting.ENGINE_LOCK_ID = waits.REQUESTING_ENGINE_LOCK_ID
+                 WHERE threads.PROCESSLIST_ID = ? AND waiting.OBJECT_SCHEMA = DATABASE()
+                   AND waiting.OBJECT_NAME = \'products\' AND waiting.INDEX_NAME = \'PRIMARY\'
+                   AND waiting.LOCK_STATUS = \'WAITING\'
+                 LIMIT 1',
                 [$connectionId],
             );
-            if ($transaction !== null && $transaction->trx_state === 'LOCK WAIT'
-                && str_contains(strtolower((string) $transaction->trx_query), 'products')) {
+            if ($lockWait !== null) {
                 return true;
             }
             usleep(20_000);

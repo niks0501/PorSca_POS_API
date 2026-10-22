@@ -62,27 +62,15 @@ class LegacyCheckoutKeyConcurrencyTest extends TestCase
             $this->assertSame(1, preg_match('/connection:(\d+)/', $workers[1]->getOutput(), $matches));
             $deadline = microtime(true) + 5;
             do {
-                // A contender blocked on its first write can be absent from
-                // innodb_trx. Observe the actual key-lock wait instead; the
-                // test user needs SELECT on these three Performance Schema tables.
-                $lockWait = DB::selectOne(
-                    'SELECT waiting.ENGINE_LOCK_ID
-                     FROM performance_schema.data_lock_waits AS waits
-                     JOIN performance_schema.threads AS threads ON threads.THREAD_ID = waits.REQUESTING_THREAD_ID
-                     JOIN performance_schema.data_locks AS waiting
-                       ON waiting.ENGINE = waits.ENGINE AND waiting.ENGINE_LOCK_ID = waits.REQUESTING_ENGINE_LOCK_ID
-                     WHERE threads.PROCESSLIST_ID = ? AND waiting.OBJECT_SCHEMA = DATABASE()
-                       AND waiting.OBJECT_NAME = \'checkout_keys\' AND waiting.INDEX_NAME = \'PRIMARY\'
-                       AND waiting.LOCK_STATUS = \'WAITING\'
-                     LIMIT 1',
-                    [(int) $matches[1]],
+                $transaction = DB::selectOne(
+                    'SELECT trx_state FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ?', [(int) $matches[1]],
                 );
-                if ($lockWait !== null) {
+                if ($transaction?->trx_state === 'LOCK WAIT') {
                     break;
                 }
                 usleep(20_000);
             } while (microtime(true) < $deadline);
-            $this->assertNotNull($lockWait, 'Competing request did not wait on the shared checkout key.');
+            $this->assertSame('LOCK WAIT', $transaction?->trx_state);
             $streams[0]->write("continue\n");
             $streams[0]->close();
             $this->assertTrue($workers[0]->waitUntil(fn () => str_contains($workers[0]->getOutput(), "shared-lock-released\n")));

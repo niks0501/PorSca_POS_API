@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\ApiException;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\CashSaleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class CashSaleTest extends TestCase
@@ -20,6 +23,105 @@ class CashSaleTest extends TestCase
         parent::setUp();
 
         $this->token = User::factory()->create(['role' => User::ROLE_ADMIN])->createToken('test')->plainTextToken;
+    }
+
+    public function test_cash_received_above_the_unsigned_integer_max_is_rejected_on_every_cash_alias(): void
+    {
+        $product = $this->product(price: 100, quantity: 5);
+
+        foreach (['/api/v1/sales', '/api/v1/sales/cash', '/api/v1/sales/checkout'] as $path) {
+            $this->postJson($path, [
+                'idempotency_key' => 'cash-overflow-'.md5($path),
+                'payment_method' => 'cash',
+                'cash_received' => 4294967296,
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            ], $this->headers())
+                ->assertUnprocessable()
+                ->assertJsonPath('error.code', 'validation_error')
+                ->assertJsonStructure(['error' => ['details' => ['cash_received']]]);
+        }
+
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(0, Transaction::count());
+        $this->assertSame(5, $product->inventory()->value('quantity'));
+    }
+
+    public function test_cash_service_rejects_cash_above_the_unsigned_integer_max_before_writes(): void
+    {
+        $product = $this->product(price: 0, quantity: 5);
+
+        try {
+            app(CashSaleService::class)->create(
+                'cash-service-overflow',
+                [['product_id' => $product->id, 'quantity' => 1]],
+                4294967296,
+            );
+            $this->fail('Cash above the unsigned integer maximum was accepted.');
+        } catch (ApiException $exception) {
+            $this->assertSame(422, $exception->status);
+            $this->assertArrayHasKey('cash_received', $exception->errors);
+        }
+
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(0, Transaction::count());
+        $this->assertSame(5, $product->inventory()->value('quantity'));
+    }
+
+    /** @return array<string, array{array<int>, int}> */
+    public static function overflowingCarts(): array
+    {
+        return [
+            'line multiplication' => [[2147483648], 2],
+            'cart addition' => [[2147483648, 2147483648], 1],
+        ];
+    }
+
+    #[DataProvider('overflowingCarts')]
+    public function test_computed_total_above_the_unsigned_integer_max_is_rejected_before_writes(array $prices, int $quantity): void
+    {
+        $items = [];
+        foreach ($prices as $price) {
+            $product = $this->product(price: $price, quantity: 5);
+            $items[] = ['product_id' => $product->id, 'quantity' => $quantity];
+        }
+
+        $this->postJson('/api/v1/sales/cash', [
+            'idempotency_key' => 'cash-total-overflow-'.md5(json_encode([$prices, $quantity])),
+            'cash_received' => 4294967295,
+            'items' => $items,
+        ], $this->headers())
+            ->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['details' => ['total_amount']]]);
+
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(0, Transaction::count());
+        foreach ($items as $item) {
+            $this->assertDatabaseHas('inventories', ['product_id' => $item['product_id'], 'quantity' => 5]);
+        }
+    }
+
+    public function test_cash_amounts_at_the_unsigned_integer_maximum_are_accepted(): void
+    {
+        $maximum = 4294967295;
+        $tendered = $this->product(price: 1, quantity: 1);
+
+        $this->postJson('/api/v1/sales/cash', [
+            'idempotency_key' => 'cash-maximum-tender',
+            'cash_received' => $maximum,
+            'items' => [['product_id' => $tendered->id, 'quantity' => 1]],
+        ], $this->headers())->assertCreated()
+            ->assertJsonPath('data.total_amount', 1)
+            ->assertJsonPath('data.cash_received', $maximum)
+            ->assertJsonPath('data.change_amount', $maximum - 1);
+
+        $pricedAtMaximum = $this->product(price: $maximum, quantity: 1);
+        $this->postJson('/api/v1/sales/cash', [
+            'idempotency_key' => 'cash-maximum-total',
+            'cash_received' => $maximum,
+            'items' => [['product_id' => $pricedAtMaximum->id, 'quantity' => 1]],
+        ], $this->headers())->assertCreated()
+            ->assertJsonPath('data.total_amount', $maximum)
+            ->assertJsonPath('data.change_amount', 0);
     }
 
     public function test_cash_sale_recomputes_totals_persists_snapshots_and_deducts_stock_atomically(): void

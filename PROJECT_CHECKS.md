@@ -1,10 +1,26 @@
 # Project Verification Checks
 
-## Fast checks
+## Tier command mapping (adaptive no-mistakes validation)
 
-- Format/lint: `vendor/bin/pint --test`
-- Typecheck/static analysis: none configured in this repository
-- Focused test example: `php artisan test --filter=ApiContractTest` (replace with the relevant existing test class or method)
+Route validation by change tier. Start with the narrowest meaningful check
+and report commands exactly as run.
+
+- T0 (style/format only): `vendor/bin/pint --test`
+- T1 (focused change with an existing target): Pint plus
+  `php artisan test --filter=<target>` for the affected test class or method
+- T2 (default for code changes): `composer verify` (runs
+  `php artisan config:clear`, the Laravel test suite, and Pint)
+- T3 (locking, settlement, reservation, or idempotency-key uniqueness):
+  `composer verify` plus the MySQL suite against a disposable local MySQL
+  test database. Export `DB_CONNECTION=mysql` with `DB_HOST`, `DB_PORT`,
+  `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` over the SQLite defaults
+  in `phpunit.xml` (mirroring `.github/workflows/mysql.yml`), then run:
+
+  ```sh
+  php artisan test --filter='(IdempotencyKeyMigrationTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest|LegacyCheckoutKeyConcurrencyTest|SettlementConcurrencyTest)'
+  ```
+
+  There is no `phpunit.mysql.xml`; `DB_*` environment exports select MySQL.
 
 ## Broader checks
 
@@ -18,15 +34,18 @@
 - Use `bash scripts/newman-report.sh` against a freshly seeded local API when a sanitized HTTP-level contract report is specifically needed; see `docs/TESTING.md` for prerequisites.
 - Follow `docs/QA-CYCLE.md` and `docs/STAGING.md` for formal release/staging verification; do not run those workflows as routine local checks.
 
-## Database checks
+## Database rules
 
-- Schema/migration tests run under the in-memory SQLite connection configured in `phpunit.xml`; those checks do not prove MySQL-specific behavior.
-- No non-destructive migration dry-run is configured. `migrate:fresh --seed` resets the selected database and is only safe against a disposable local database.
-- For MySQL-specific behavior, use the documented local MySQL connection and a disposable development database; see `docs/SETUP.md` and `DATABASE_GUIDE.md`.
+- SQLite (in-memory, per `phpunit.xml`) is the default test database.
+- MySQL runs use only a disposable local test database. The suites rebuild
+  or truncate whichever database the connection selects, so never point
+  them at staging, production, or any other shared database.
+- `migrate:fresh --seed` resets the selected database and is only safe
+  against a disposable local database.
 
 ## Rules
 
-- Start with the narrowest meaningful check and report commands exactly as run.
 - Do not install dependencies just to fill a verification gap.
-- Do not deploy, publish, or run destructive database checks as part of routine verification.
+- Do not deploy, publish, or run destructive database checks as part of
+  routine verification.
 - Distinguish passed, failed, skipped, and unavailable checks.
