@@ -55,8 +55,26 @@ review:
 test:
   instructions: |
     Follow PROJECT_CHECKS.md.
-    Run relevant Laravel Feature and PHPUnit tests
-    against an isolated disposable test database.
+    Route validation by change tier:
+    - T0 (style/format only): `vendor/bin/pint --test`.
+    - T1 (focused change with an existing target): Pint plus
+      `php artisan test --filter=<target>` for the affected
+      test class or method.
+    - T2 (default for code changes): `composer verify`
+      (config:clear, the Laravel test suite on in-memory
+      SQLite, and Pint).
+    - T3 (locking, settlement, reservation, or idempotency-key
+      uniqueness): `composer verify` plus the MySQL suite against
+      a disposable local MySQL test database. Export
+      DB_CONNECTION=mysql with DB_HOST, DB_PORT, DB_DATABASE,
+      DB_USERNAME, and DB_PASSWORD over the SQLite defaults in
+      phpunit.xml (mirroring .github/workflows/mysql.yml), then run
+      `php artisan test --filter='(IdempotencyKeyMigrationTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest|LegacyCheckoutKeyConcurrencyTest|SettlementConcurrencyTest)'`.
+      There is no phpunit.mysql.xml; DB_* environment exports
+      select MySQL.
+    Run the Laravel suites against an isolated disposable test
+    database. SQLite is the default; MySQL runs use only a
+    disposable local database, never a shared one.
 
     For browser-accessible live API verification,
     use only chrome-devtools-axi.
