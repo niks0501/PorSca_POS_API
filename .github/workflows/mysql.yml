@@ -82,11 +82,12 @@ jobs:
           vendor/bin/phpunit --testdox --display-skipped --fail-on-skipped --colors=never
           --filter='(CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest)'
 
-      # Advisory: both classes guard real product behavior that passes on MySQL,
-      # but they observe the wait through information_schema.innodb_trx, which has
-      # been seen to omit a demonstrably waiting worker. Keep the evidence visible
-      # without blocking PRs until that barrier is modernized (see docs/TESTING.md).
-      - name: Legacy barrier concurrency suites (advisory, non-blocking)
+      # Advisory: both classes guard real product behavior that passes on MySQL and
+      # observe their contender's key-lock wait through Performance Schema, which
+      # needs SELECT on those tables and no PROCESS privilege. Keep the evidence
+      # visible without blocking PRs until a separate workflow change promotes the
+      # tier (see docs/TESTING.md).
+      - name: Legacy checkout-key and settlement concurrency suites (advisory, non-blocking)
         continue-on-error: true
         run: >-
           vendor/bin/phpunit --testdox --display-skipped --fail-on-skipped --colors=never
