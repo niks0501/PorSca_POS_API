@@ -22,6 +22,20 @@ and report commands exactly as run.
 
   There is no `phpunit.mysql.xml`; `DB_*` environment exports select MySQL.
 
+## Critical-path test authority and frozen matrix
+
+For checkout authority/concurrency, settlement, reservations, and
+idempotency-key migrations/uniqueness, only secondmate-blessed or human-owned
+tests count as proof. Worker-written tests are supplemental proposals and do
+not count as proof until explicitly blessed by secondmate or a human.
+
+The golden money-path suites are immutable without captain sign-off:
+`CheckoutAuthorityConcurrencyTest`, `SettlementConcurrencyTest`,
+`ReservationConcurrencyTest`, `IdempotencyKeyMigrationTest`, and
+`LegacyCheckoutKeyConcurrencyTest`. Frozen-matrix baseline: commit
+`887e7aa36fcade5220e940b0f14d5ad7d20dabdd`, established by the [merged
+change](https://github.com/niks0501/PorSca_POS_API/pull/83).
+
 ## Database rules
 
 - SQLite (in-memory, per `phpunit.xml`) is the default test database.
