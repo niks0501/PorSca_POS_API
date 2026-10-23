@@ -55,6 +55,13 @@ review:
 test:
   instructions: |
     Follow PROJECT_CHECKS.md.
+    For critical paths (checkout authority/concurrency, settlement,
+    reservations, and idempotency-key migrations/uniqueness), only
+    secondmate-blessed or human-owned tests count as proof. Worker-written
+    tests are supplemental proposals and do not count as proof until
+    explicitly blessed by secondmate or a human.
+    The golden money-path suites listed in PROJECT_CHECKS.md are immutable;
+    do not change them without captain sign-off.
     Route validation by change tier:
     - T0 (style/format only): `vendor/bin/pint --test`.
     - T1 (focused change with an existing target): Pint plus
