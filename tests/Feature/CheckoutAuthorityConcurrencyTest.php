@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Checkout;
+use App\Models\CheckoutOperation;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\ReconciliationCase;
+use App\Models\Sale;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Services\CheckoutOutcomes;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
@@ -59,19 +62,39 @@ class CheckoutAuthorityConcurrencyTest extends TestCase
     public function test_two_different_cash_keys_cannot_finalize_same_checkout_twice(): void
     {
         $product = $this->product();
-        $checkout = $this->checkout($product);
+        $create = $this->request('/checkouts', ['items' => [['productId' => $product->id, 'quantity' => 1]]], 'checkout-create');
+        $created = $this->race($product, [$create, $create]);
+        $creationCodes = array_column($created, 'http_status');
+        sort($creationCodes);
+        $this->assertSame([200, 201], $creationCodes);
+        $this->assertSame($created[0]['body']['data']['id'], $created[1]['body']['data']['id']);
+        $this->assertDatabaseCount('checkouts', 1);
+        $this->assertDatabaseCount('checkout_events', 1);
+        $this->assertDatabaseHas('checkout_events', ['type' => 'checkout_created']);
+        $this->assertDatabaseCount('checkout_operations', 0);
+        $this->assertDatabaseCount('payments', 0);
+        $this->assertDatabaseCount('sales', 0);
+        $createdCheckout = Checkout::findOrFail($created[0]['body']['data']['id']);
+        $this->assertSame('open', $createdCheckout->state);
+        $this->assertSame(1, $createdCheckout->revision);
+        $this->assertSame(505, (int) $createdCheckout->amount_centavos);
+        $this->assertSame($product->id, $createdCheckout->items[0]['productId']);
+        $this->assertSame(1, $createdCheckout->items[0]['quantity']);
+        $this->assertSame(1, $product->inventory->fresh()->quantity);
+
+        $checkoutId = $created[0]['body']['data']['id'];
+        $checkout = Checkout::findOrFail($checkoutId);
         $payload = ['revision' => 1, 'acceptedAmountCentavos' => 505, 'cashReceivedCentavos' => 505];
         $results = $this->race($product, [
-            $this->request('/checkouts/'.$checkout['id'].'/cash', $payload, 'cash-a'),
-            $this->request('/checkouts/'.$checkout['id'].'/cash', $payload, 'cash-b'),
+            $this->request('/checkouts/'.$checkoutId.'/cash', $payload, 'cash-a'),
+            $this->request('/checkouts/'.$checkoutId.'/cash', $payload, 'cash-b'),
         ]);
         $codes = array_column($results, 'http_status');
         sort($codes);
         $this->assertSame([201, 409], $codes);
         $this->assertDatabaseCount('sales', 1);
-        $this->assertDatabaseCount('checkout_operations', 1);
-        $this->assertSame('completed', Checkout::find($checkout['id'])->state);
         $this->assertSame(0, $product->inventory->fresh()->quantity);
+        $this->assertCashSaleInvariant($checkout, $product, 505, 0);
     }
 
     public function test_same_cash_key_returns_original_receipt_to_both_processes(): void
@@ -86,6 +109,7 @@ class CheckoutAuthorityConcurrencyTest extends TestCase
         $this->assertSame($results[0]['body']['data']['sale']['id'], $results[1]['body']['data']['sale']['id']);
         $this->assertDatabaseCount('sales', 1);
         $this->assertSame(0, $product->inventory->fresh()->quantity);
+        $this->assertCashSaleInvariant(Checkout::findOrFail($checkout['id']), $product, 600, 95);
     }
 
     public function test_same_qr_key_creates_one_attempt_and_one_hold(): void
@@ -100,7 +124,23 @@ class CheckoutAuthorityConcurrencyTest extends TestCase
         $this->assertSame($results[0]['body']['data']['attempts'][0]['id'], $results[1]['body']['data']['attempts'][0]['id']);
         $this->assertDatabaseCount('payments', 1);
         $this->assertDatabaseCount('sales', 0);
+        $this->assertDatabaseCount('checkout_operations', 1);
+        $attempt = Payment::where('checkout_id', $checkout['id'])->firstOrFail();
+        $operation = CheckoutOperation::where('checkout_id', $checkout['id'])->firstOrFail();
+        $this->assertSame('qrph', $operation->kind);
+        $this->assertSame($attempt->id, $operation->payment_id);
+        $this->assertSame(Payment::PENDING, $attempt->status);
+        $this->assertSame(505, (int) $attempt->amount);
+        $this->assertTrue($attempt->reservation_expires_at->isFuture());
+        $this->assertDatabaseHas('payment_items', [
+            'payment_id' => $attempt->id, 'product_id' => $product->id, 'quantity' => 1, 'unit_price' => 505,
+        ]);
+        $reserved = (int) DB::table('payment_items')->join('payments', 'payments.id', '=', 'payment_items.payment_id')
+            ->where('payment_items.product_id', $product->id)->where('payments.status', Payment::PENDING)
+            ->where('payments.reservation_expires_at', '>', now())->sum('payment_items.quantity');
+        $this->assertSame(1, $reserved);
         $this->assertSame(1, $product->inventory->fresh()->quantity);
+        $this->assertLessThanOrEqual($product->inventory->fresh()->quantity, $reserved);
     }
 
     public function test_duplicate_paid_refreshes_converge_on_sale_under_repeatable_read(): void
@@ -121,7 +161,17 @@ class CheckoutAuthorityConcurrencyTest extends TestCase
         }
         $this->assertSame($results[0]['body']['data']['sale']['id'], $results[1]['body']['data']['sale']['id']);
         $this->assertDatabaseCount('sales', 1);
+        $sale = Sale::where('checkout_id', $checkout['id'])->firstOrFail();
+        $committedAttempt = $attempt->fresh();
+        $this->assertSame($sale->id, $committedAttempt->sale_id);
+        $this->assertSame((int) $committedAttempt->amount, (int) $sale->total_amount);
+        $this->assertSame(1, $sale->items()->count());
+        $this->assertDatabaseHas('sale_items', ['sale_id' => $sale->id, 'product_id' => $product->id, 'quantity' => 1, 'unit_price' => 505]);
         $this->assertSame(1, $attempt->transactions()->where('type', 'payment_succeeded')->count());
+        $ledger = Transaction::where('payment_id', $attempt->id)->where('type', 'payment_succeeded')->firstOrFail();
+        $this->assertSame((int) $committedAttempt->amount, (int) $ledger->amount);
+        $this->assertSame($sale->id, $ledger->sale_id);
+        $this->assertSame($sale->id, Checkout::findOrFail($checkout['id'])->sale_id);
         $this->assertSame(0, $product->inventory->fresh()->quantity);
     }
 
@@ -147,6 +197,36 @@ class CheckoutAuthorityConcurrencyTest extends TestCase
         $this->assertSame(2, $case->fresh()->version);
         $this->assertSame(1, $case->events()->where('type', 'case_review')->count());
         $this->assertDatabaseCount('sales', 0);
+    }
+
+    private function assertCashSaleInvariant(Checkout $checkout, Product $product, int $cashReceived, int $changeAmount): void
+    {
+        $checkout = $checkout->fresh();
+        $sale = Sale::where('checkout_id', $checkout->id)->firstOrFail();
+        $this->assertSame(1, Sale::where('checkout_id', $checkout->id)->count());
+        $payment = Payment::where('checkout_id', $checkout->id)->firstOrFail();
+        $this->assertSame(1, Payment::where('checkout_id', $checkout->id)->count());
+        $operation = CheckoutOperation::where('checkout_id', $checkout->id)->firstOrFail();
+        $transaction = Transaction::where('sale_id', $sale->id)->where('type', 'cash_sale')->firstOrFail();
+
+        $this->assertSame('completed', $checkout->state);
+        $this->assertSame($sale->id, $checkout->sale_id);
+        $this->assertSame(505, (int) $sale->total_amount);
+        $this->assertSame('cash', $sale->payment_method);
+        $this->assertSame($cashReceived, (int) $sale->cash_received);
+        $this->assertSame($changeAmount, (int) $sale->change_amount);
+        $this->assertSame(1, $sale->items()->count());
+        $this->assertDatabaseHas('sale_items', [
+            'sale_id' => $sale->id, 'product_id' => $product->id, 'quantity' => 1, 'unit_price' => 505,
+        ]);
+        $this->assertSame(Payment::PAID, $payment->status);
+        $this->assertSame($sale->id, $payment->sale_id);
+        $this->assertSame(1, CheckoutOperation::where('checkout_id', $checkout->id)->count());
+        $this->assertSame('cash', $operation->kind);
+        $this->assertSame($payment->id, $operation->payment_id);
+        $this->assertSame(1, Transaction::where('sale_id', $sale->id)->where('type', 'cash_sale')->count());
+        $this->assertSame(505, (int) $transaction->amount);
+        $this->assertSame('completed', $transaction->status);
     }
 
     private function request(string $path, array $payload, string $key): array

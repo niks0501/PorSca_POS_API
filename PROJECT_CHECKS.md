@@ -22,17 +22,19 @@ and report commands exactly as run.
 
   There is no `phpunit.mysql.xml`; `DB_*` environment exports select MySQL.
 
-## Broader checks
+## Critical-path test authority and frozen matrix
 
-- Test suite and canonical repository check: `composer verify` (runs `php artisan config:clear`, the Laravel test suite, and Pint)
-- Build: no frontend or separate build command is configured here
-- Integration/API contract: PHPUnit Feature tests cover the API contract. `.github/workflows/newman.yml` runs the retained Newman collection with the pinned toolchain against a fresh disposable SQLite API and uploads sanitized reports for 14 days. Reproduce locally with `bash scripts/newman-report.sh` after the environment and cashier setup in `docs/TESTING.md`.
-- E2E: no browser/device E2E setup exists in this API repository; it is not a routine check for API-only changes
+For checkout authority/concurrency, settlement, reservations, and
+idempotency-key migrations/uniqueness, only secondmate-blessed or human-owned
+tests count as proof. Worker-written tests are supplemental proposals and do
+not count as proof until explicitly blessed by secondmate or a human.
 
-## Manual verification
-
-- Use `bash scripts/newman-report.sh` against a freshly seeded local API when a sanitized HTTP-level contract report is specifically needed; see `docs/TESTING.md` for prerequisites.
-- Follow `docs/QA-CYCLE.md` and `docs/STAGING.md` for formal release/staging verification; do not run those workflows as routine local checks.
+The golden money-path suites are immutable without captain sign-off:
+`CheckoutAuthorityConcurrencyTest`, `SettlementConcurrencyTest`,
+`ReservationConcurrencyTest`, `IdempotencyKeyMigrationTest`, and
+`LegacyCheckoutKeyConcurrencyTest`. Frozen-matrix baseline: commit
+`887e7aa36fcade5220e940b0f14d5ad7d20dabdd`, established by the [merged
+change](https://github.com/niks0501/PorSca_POS_API/pull/83).
 
 ## Database rules
 

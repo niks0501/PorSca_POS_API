@@ -10,97 +10,23 @@ protected_paths:
   - "database/migrations/**"
   - ".github/workflows/**"
 
-document:
-  instructions: |
-    README.md owns installation and onboarding.
-    PROJECT_CHECKS.md owns verification commands.
-    PROJECT_STACK.md owns architecture guidance.
-    DATABASE_GUIDE.md owns database setup and safety.
-    docs/ARCHITECTURE.md owns API architecture.
-    docs/CHECKOUT-CONTRACT.md owns checkout contracts.
-    docs/STAGING.md owns staging and deployment.
-    docs/QA-CYCLE.md owns formal QA procedures.
-    Update existing owners rather than duplicating facts.
-
 review:
+  conversation: false
   path_instructions:
     - path: "app/Services/**"
-      instructions: |
-        Check transaction atomicity, stock reservation,
-        checkout idempotency, payment settlement,
-        webhook safety, and reconciliation correctness.
-        Never allow duplicate sales or double deductions.
-
+      instructions: "Check atomic sale/stock settlement, reservation release, webhook replay, and checkout idempotency."
     - path: "app/Domain/**"
-      instructions: |
-        Preserve checkout invariants, monetary correctness,
-        stock constraints, and business-rule consistency.
-
+      instructions: "Preserve centavo arithmetic, evidence-based finality, and checkout/fulfillment locks."
     - path: "app/Http/**"
-      instructions: |
-        Check input validation, authorization,
-        authentication, HTTP responses, and error handling.
-
-    - path: "routes/**"
-      instructions: |
-        Check endpoint access, API compatibility,
-        response contracts, and route security.
-
+      instructions: "Check actor authorization, input validation, and docs/CHECKOUT-CONTRACT.md response semantics."
     - path: "database/migrations/**"
-      instructions: |
-        Check migration safety and data preservation.
-        Never assume production data can be reset.
-        Identify compatibility and rollback risks.
-
+      instructions: "Preserve existing data and idempotency uniqueness; check forward compatibility and rollback safety."
+commands:
+  test: "vendor/bin/phpunit tests/Unit/CheckoutRulesTest.php --fail-on-empty-test-suite"
 test:
   instructions: |
-    Follow PROJECT_CHECKS.md.
-    Route validation by change tier:
-    - T0 (style/format only): `vendor/bin/pint --test`.
-    - T1 (focused change with an existing target): Pint plus
-      `php artisan test --filter=<target>` for the affected
-      test class or method.
-    - T2 (default for code changes): `composer verify`
-      (config:clear, the Laravel test suite on in-memory
-      SQLite, and Pint).
-    - T3 (locking, settlement, reservation, or idempotency-key
-      uniqueness): `composer verify` plus the MySQL suite against
-      a disposable local MySQL test database. Export
-      DB_CONNECTION=mysql with DB_HOST, DB_PORT, DB_DATABASE,
-      DB_USERNAME, and DB_PASSWORD over the SQLite defaults in
-      phpunit.xml (mirroring .github/workflows/mysql.yml), then run
-      `php artisan test --filter='(IdempotencyKeyMigrationTest|CheckoutAuthorityConcurrencyTest|ReservationConcurrencyTest|LegacyCheckoutKeyConcurrencyTest|SettlementConcurrencyTest)'`.
-      There is no phpunit.mysql.xml; DB_* environment exports
-      select MySQL.
-    Run the Laravel suites against an isolated disposable test
-    database. SQLite is the default; MySQL runs use only a
-    disposable local database, never a shared one.
-
-    For browser-accessible live API verification,
-    use only chrome-devtools-axi.
-
-    Assign a unique CHROME_DEVTOOLS_AXI_SESSION per run,
-    derived from the run or isolated worktree identity.
-    Reuse that session throughout verification.
-    Use AXI's default isolated Chrome launch mode.
-    Never attach to shared browser sessions.
-    Do not set a shared CHROME_DEVTOOLS_AXI_PORT.
-
-    Start only an isolated local API when needed.
-    Exercise affected browser-accessible HTTP behavior.
-    Inspect request outcomes and response data.
-    Never access shared, staging, or production databases.
-
-    Never use agent-device, phones, emulators, or ADB.
-    Never trigger real payments, deployments,
-    destructive migrations, or external webhooks.
-
-    Do not create persistent E2E scripts.
-    Do not substitute browser checks for API contract tests.
-
-    Report actual defects as no-go with evidence.
-    If required live verification is unsupported
-    or unavailable, report inconclusive with reasons
-    and manual verification steps.
-    Never mark unverified behavior as passed.
-    Clean up only resources owned by this run.
+    Read AGENTS.md and PROJECT_CHECKS.md; confirm the selected checkout contract before live requests.
+    Follow docs/SETUP.md to start an isolated local API on a free port with a verified disposable database and synthetic users.
+    Use chrome-devtools-axi, a unique CHROME_DEVTOOLS_AXI_SESSION, and default isolated Chrome for changed HTTP scenarios.
+    Inspect status/body and persisted sale/stock effects; obey PROJECT_CHECKS.md safety and proof rules, never real payments or external webhooks.
+    Report defects as no-go and unavailable checks as inconclusive with evidence/manual steps; stop only run-owned resources.

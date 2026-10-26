@@ -56,7 +56,8 @@ class SettlementConcurrencyTest extends TestCase
             $this->assertNotNull($payment->fresh()->sale_id);
             $this->assertSame(1, $results[$index]['inspections']);
             $this->assertSame(1, Transaction::where('payment_id', $payment->id)->where('type', 'payment_succeeded')->count());
-            $this->assertSame(1, Sale::where('idempotency_key', 'payment:'.$payment->id)->count());
+            $sale = Sale::where('idempotency_key', 'payment:'.$payment->id)->firstOrFail();
+            $this->assertSettlementBalance($payment, 'payment_succeeded', $sale);
         }
         $this->assertSame(2, Sale::count());
         $this->assertDatabaseCount('sale_items', 2);
@@ -95,9 +96,12 @@ class SettlementConcurrencyTest extends TestCase
             $this->assertSame($committedPayment->failure_reason, $responsePayment['failure_reason']);
             $this->assertSame($committedPayment->paid_at?->toISOString(), $responsePayment['paid_at']);
         }
-        $this->assertSame(1, Transaction::where('payment_id', $payment->id)->where('type', $outcome === 'paid' ? 'payment_succeeded' : 'payment_paid_unfulfilled')->count());
+        $type = $outcome === 'paid' ? 'payment_succeeded' : 'payment_paid_unfulfilled';
+        $this->assertSame(1, Transaction::where('payment_id', $payment->id)->where('type', $type)->count());
         $this->assertSame($expectedStatus === Payment::PAID ? 1 : 0, Sale::count());
         $this->assertSame($expectedStatus === Payment::PAID ? 1 : 0, $product->fresh()->inventory->quantity);
+        $sale = $expectedStatus === Payment::PAID ? Sale::findOrFail($committedPayment->sale_id) : null;
+        $this->assertSettlementBalance($committedPayment, $type, $sale);
         if ($outcome === 'unfulfilled') {
             $this->assertSame('stock_reconciliation_required', $committedPayment->failure_reason);
         }
@@ -140,6 +144,8 @@ class SettlementConcurrencyTest extends TestCase
         $this->assertSame(1, Sale::count());
         $this->assertDatabaseCount('sale_items', 1);
         $this->assertSame(1, Transaction::where('type', 'payment_succeeded')->count());
+        $sale = Sale::where('idempotency_key', 'payment:'.$payment->id)->firstOrFail();
+        $this->assertSettlementBalance($payment, 'payment_succeeded', $sale);
         // Absolute stock edit semantics are unchanged: its order determines quantity.
         $this->assertContains($product->fresh()->inventory->quantity, [1, 2]);
         if (! $inventoryRoute) {
@@ -299,6 +305,30 @@ class SettlementConcurrencyTest extends TestCase
         $this->assertSame(0, $result['transaction_level']);
 
         return $result;
+    }
+
+    private function assertSettlementBalance(Payment $payment, string $type, ?Sale $sale): void
+    {
+        $payment = $payment->fresh();
+        $ledger = Transaction::where('payment_id', $payment->id)->where('type', $type)->firstOrFail();
+        $this->assertSame(1, Transaction::where('payment_id', $payment->id)->where('type', $type)->count());
+        $this->assertSame((int) $payment->amount, (int) $ledger->amount);
+        $this->assertSame($payment->status, $ledger->status);
+        $this->assertSame($payment->currency, $ledger->currency);
+        $this->assertSame($sale?->id, $payment->sale_id);
+        $this->assertSame($sale?->id, $ledger->sale_id);
+
+        if ($sale !== null) {
+            $this->assertSame(Payment::PAID, $payment->status);
+            $this->assertSame((int) $payment->amount, (int) $sale->total_amount);
+            $this->assertSame(1, $sale->items()->count());
+            $paymentItem = $payment->items()->firstOrFail();
+            $saleItem = $sale->items()->firstOrFail();
+            $this->assertSame((int) $paymentItem->product_id, (int) $saleItem->product_id);
+            $this->assertSame((int) $paymentItem->quantity, (int) $saleItem->quantity);
+            $this->assertSame((int) $paymentItem->unit_price, (int) $saleItem->unit_price);
+            $this->assertSame((int) $payment->amount, (int) $paymentItem->quantity * (int) $paymentItem->unit_price);
+        }
     }
 
     private function assertProcessedWebhooks(int $expected): void
