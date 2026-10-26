@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Payment;
 use App\Models\Product;
+use App\Models\Sale;
+use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
@@ -60,29 +63,10 @@ class LegacyCheckoutKeyConcurrencyTest extends TestCase
                 $this->assertTrue($workers[$index]->waitUntil(fn () => str_contains($workers[$index]->getOutput(), $marker)), $workers[$index]->getErrorOutput());
             }
             $this->assertSame(1, preg_match('/connection:(\d+)/', $workers[1]->getOutput(), $matches));
-            $deadline = microtime(true) + 5;
-            do {
-                // A contender blocked on its first write can be absent from
-                // innodb_trx. Observe the actual key-lock wait instead; the
-                // test user needs SELECT on these three Performance Schema tables.
-                $lockWait = DB::selectOne(
-                    'SELECT waiting.ENGINE_LOCK_ID
-                     FROM performance_schema.data_lock_waits AS waits
-                     JOIN performance_schema.threads AS threads ON threads.THREAD_ID = waits.REQUESTING_THREAD_ID
-                     JOIN performance_schema.data_locks AS waiting
-                       ON waiting.ENGINE = waits.ENGINE AND waiting.ENGINE_LOCK_ID = waits.REQUESTING_ENGINE_LOCK_ID
-                     WHERE threads.PROCESSLIST_ID = ? AND waiting.OBJECT_SCHEMA = DATABASE()
-                       AND waiting.OBJECT_NAME = \'checkout_keys\' AND waiting.INDEX_NAME = \'PRIMARY\'
-                       AND waiting.LOCK_STATUS = \'WAITING\'
-                     LIMIT 1',
-                    [(int) $matches[1]],
-                );
-                if ($lockWait !== null) {
-                    break;
-                }
-                usleep(20_000);
-            } while (microtime(true) < $deadline);
-            $this->assertNotNull($lockWait, 'Competing request did not wait on the shared checkout key.');
+            $this->assertTrue(
+                $this->waitForCheckoutKeyLockWait((int) $matches[1]),
+                'Competing request did not wait on the shared checkout key lock.',
+            );
             $streams[0]->write("continue\n");
             $streams[0]->close();
             $this->assertTrue($workers[0]->waitUntil(fn () => str_contains($workers[0]->getOutput(), "shared-lock-released\n")));
@@ -100,6 +84,34 @@ class LegacyCheckoutKeyConcurrencyTest extends TestCase
             $this->assertSame('idempotency_conflict', $results[1]['body']['error']['code']);
             $this->assertDatabaseCount('sales', $first === 'cash' ? 1 : 0);
             $this->assertDatabaseCount('payments', $first === 'qrph' ? 1 : 0);
+            $this->assertDatabaseCount('checkout_keys', 1);
+            $this->assertDatabaseHas('checkout_keys', ['idempotency_key' => 'shared-public-key']);
+            if ($first === 'cash') {
+                $sale = Sale::where('key_namespace', Sale::CHECKOUT_NAMESPACE)
+                    ->where('idempotency_key', 'shared-public-key')->firstOrFail();
+                $this->assertSame(500, (int) $sale->total_amount);
+                $this->assertSame(500, (int) $sale->cash_received);
+                $this->assertSame(0, (int) $sale->change_amount);
+                $this->assertSame(1, $sale->items()->count());
+                $item = $sale->items()->firstOrFail();
+                $this->assertSame($product->id, (int) $item->product_id);
+                $this->assertSame(1, (int) $item->quantity);
+                $transaction = Transaction::where('sale_id', $sale->id)->where('type', 'cash_sale')->firstOrFail();
+                $this->assertSame(500, (int) $transaction->amount);
+                $this->assertSame(1, Transaction::where('sale_id', $sale->id)->where('type', 'cash_sale')->count());
+            } else {
+                $payment = Payment::where('idempotency_key', 'shared-public-key')->firstOrFail();
+                $this->assertSame(Payment::PENDING, $payment->status);
+                $this->assertSame(500, (int) $payment->amount);
+                $this->assertTrue($payment->reservation_expires_at->isFuture());
+                $this->assertSame(1, $payment->items()->count());
+                $item = $payment->items()->firstOrFail();
+                $this->assertSame($product->id, (int) $item->product_id);
+                $this->assertSame(1, (int) $item->quantity);
+                $transaction = Transaction::where('payment_id', $payment->id)->where('type', 'payment_created')->firstOrFail();
+                $this->assertSame(500, (int) $transaction->amount);
+                $this->assertSame(1, Transaction::where('payment_id', $payment->id)->where('type', 'payment_created')->count());
+            }
             $this->assertSame($first === 'cash' ? 1 : 2, $product->inventory()->value('quantity'));
             if ($differentCart) {
                 $this->assertSame(2, $other->inventory()->value('quantity'));
@@ -114,5 +126,30 @@ class LegacyCheckoutKeyConcurrencyTest extends TestCase
                 $stream->close();
             }
         }
+    }
+
+    private function waitForCheckoutKeyLockWait(int $connectionId): bool
+    {
+        $deadline = microtime(true) + 5;
+        do {
+            $lockWait = DB::selectOne(
+                'SELECT waiting.ENGINE_LOCK_ID
+                 FROM performance_schema.data_lock_waits AS waits
+                 JOIN performance_schema.threads AS threads ON threads.THREAD_ID = waits.REQUESTING_THREAD_ID
+                 JOIN performance_schema.data_locks AS waiting
+                   ON waiting.ENGINE = waits.ENGINE AND waiting.ENGINE_LOCK_ID = waits.REQUESTING_ENGINE_LOCK_ID
+                 WHERE threads.PROCESSLIST_ID = ? AND waiting.OBJECT_SCHEMA = DATABASE()
+                   AND waiting.OBJECT_NAME = \'checkout_keys\' AND waiting.INDEX_NAME = \'PRIMARY\'
+                   AND waiting.LOCK_STATUS = \'WAITING\'
+                 LIMIT 1',
+                [$connectionId],
+            );
+            if ($lockWait !== null) {
+                return true;
+            }
+            usleep(20_000);
+        } while (microtime(true) < $deadline);
+
+        return false;
     }
 }

@@ -26,7 +26,7 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites. Read it before i
 - Graphify snapshot regeneration; generated output stays untracked and out of validation — [docs/SETUP.md](docs/SETUP.md#regenerate-the-graphify-snapshot)
 - Windows 11 native Wi-Fi LAN development — [README.md](README.md#windows-11-native-wi-fi-lan-development)
 - Structure and API contract — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Staging on AWS Lightsail (manual SSH deploy for the staging ref) and promotion — [docs/STAGING.md](docs/STAGING.md)
+- Staging on AWS Lightsail (SSH deploy on staging pushes) and promotion — [docs/STAGING.md](docs/STAGING.md)
 - Testing — [docs/TESTING.md](docs/TESTING.md)
 - Cash-sale and QR payment contract, including sandbox reservations and paid-unfulfilled reconciliation — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#checkout-and-payments)
 - Formal QA cycle — [docs/QA-CYCLE.md](docs/QA-CYCLE.md)
@@ -48,9 +48,11 @@ Use [docs/SETUP.md](docs/SETUP.md) for setup and prerequisites. Read it before i
 
 ## Freshness
 
-A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR. Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`. Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
-Before opening the PR, check its final diff for the corresponding root-guidance update; running the initializer is not a freshness check.
-Check the staged diff before committing too: QA runbooks are workflow changes, and QR payload changes are contract changes even when only a gateway and its tests are touched.
+- A PR that changes setup, contracts, or workflow must update the root agent guidance in that same PR.
+- Keep `CLAUDE.md` as a thin pointer to `AGENTS.md`.
+- Edit existing guidance directly; do not run `fm-ensure-agents-md.sh` during routine PR work—it is a manual project-initialization utility.
+- Before opening the PR, check its final diff for the corresponding root-guidance update; running the initializer is not a freshness check.
+- Check the staged diff before committing too: QA runbooks are workflow changes, and QR payload changes are contract changes even when only a gateway and its tests are touched. After staging, run `git diff --cached` and confirm the required root-guidance update is included; an unstaged diff or `git diff --check` alone does not satisfy this review.
 
 ## Maintaining this file
 

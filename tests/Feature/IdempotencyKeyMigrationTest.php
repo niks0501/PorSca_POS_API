@@ -18,9 +18,8 @@ class IdempotencyKeyMigrationTest extends TestCase
 {
     use DatabaseMigrations;
 
-    protected function setUp(): void
+    private function requireMySqlCollations(): void
     {
-        parent::setUp();
         if (! in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             $this->markTestSkipped('Requires MySQL or MariaDB column collations and index semantics.');
         }
@@ -59,6 +58,7 @@ class IdempotencyKeyMigrationTest extends TestCase
 
     public function test_deployed_keys_and_unique_indexes_survive_case_sensitive_conversion(): void
     {
+        $this->requireMySqlCollations();
         $migration = $this->migration();
         $migration->down();
         $originals = $this->records('order:A');
@@ -86,6 +86,14 @@ class IdempotencyKeyMigrationTest extends TestCase
                 $this->assertSame(2, $model->newQuery()->count());
             }
         }
+        DB::table('checkout_keys')->insert([['idempotency_key' => 'order:A'], ['idempotency_key' => 'order:a']]);
+        $this->assertDatabaseCount('checkout_keys', 2);
+        try {
+            DB::table('checkout_keys')->insert(['idempotency_key' => 'order:A']);
+            $this->fail('An exact duplicate shared key must still violate its primary key.');
+        } catch (UniqueConstraintViolationException) {
+            $this->assertDatabaseCount('checkout_keys', 2);
+        }
         try {
             $migration->down();
             $this->fail('Rollback must not merge case-distinct identities.');
@@ -100,6 +108,7 @@ class IdempotencyKeyMigrationTest extends TestCase
 
     public function test_late_rollback_collision_preserves_all_columns_and_the_shared_key_table(): void
     {
+        $this->requireMySqlCollations();
         $originals = $this->records('order:A');
         Payment::create(['idempotency_key' => 'order:a', 'request_hash' => str_repeat('d', 64), 'amount' => 500]);
         try {
@@ -114,5 +123,23 @@ class IdempotencyKeyMigrationTest extends TestCase
         }
         DB::table('checkout_keys')->insert([['idempotency_key' => 'lock:A'], ['idempotency_key' => 'lock:a']]);
         $this->assertDatabaseCount('checkout_keys', 2);
+        try {
+            DB::table('checkout_keys')->insert(['idempotency_key' => 'lock:A']);
+            $this->fail('The shared key table must reject an exact duplicate.');
+        } catch (UniqueConstraintViolationException) {
+            $this->assertDatabaseCount('checkout_keys', 2);
+        }
+    }
+
+    public function test_shared_checkout_key_rejects_an_exact_duplicate_on_every_driver(): void
+    {
+        DB::table('checkout_keys')->insert(['idempotency_key' => 'public-order-key']);
+        $this->assertDatabaseCount('checkout_keys', 1);
+        try {
+            DB::table('checkout_keys')->insert(['idempotency_key' => 'public-order-key']);
+            $this->fail('The shared checkout key must be unique.');
+        } catch (UniqueConstraintViolationException) {
+            $this->assertDatabaseCount('checkout_keys', 1);
+        }
     }
 }
