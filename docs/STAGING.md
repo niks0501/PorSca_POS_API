@@ -12,20 +12,20 @@ Unavailable checks are not failed checks: merge to `staging` during runner outag
 
 ## AWS Lightsail staging runbook
 
-The permanent API origin is `https://staging-api.<domain>`; clients use the `/api/v1` base. This is a literal placeholder until the operator selects and configures the existing domain. The instance is not live yet: configuration below is a plan, not proof of deployment. The first promotion merge into `staging` after operator setup must demonstrate a successful deploy and exact-commit health assertion. Do not configure DNS, secrets, or infrastructure from this guide alone.
+The permanent API origin is `https://staging-api.porsca.online`; clients use the `/api/v1` base. The instance is live; the configuration below is the deployed setup. The first promotion merge into `staging` after operator setup must demonstrate a successful deploy and exact-commit health assertion. Do not configure DNS, secrets, or infrastructure from this guide alone.
 
 ### Bootstrap (operator)
 
 Provision the decided Lightsail Small-2GB Ubuntu 24.04 instance in Singapore (`ap-southeast-1`), with static IPv4 and inbound 22/80/443 only. Use key-only SSH on port 22, disable password and root login, create the dedicated `deploy` user, and add 2 GB swap. Paid billing is the decided account plan; confirm credit eligibility/expiry and budget alert with the account owner.
 
-Install Nginx, PHP 8.3-FPM and required extensions, Composer 2, git, and MySQL 8. Bind MySQL to loopback; create `porsca_staging` and a least-privilege database user. Configure Nginx/TLS for `staging-api.<domain>` (Certbot/Let's Encrypt) with the document root at `/home/deploy/porsca-api/public`; verify renewal. Configure PHP-FPM as `deploy:www-data`. Clone the API into `/home/deploy/porsca-api`, check out `staging`, and install production dependencies.
+Install Nginx, PHP 8.3-FPM and required extensions, Composer 2, git, and MySQL 8. Bind MySQL to loopback; create `porsca_staging` and a least-privilege database user. Configure Nginx/TLS for `staging-api.porsca.online` (Certbot/Let's Encrypt) with the document root at `/home/deploy/porsca-api/public`; verify renewal. Configure PHP-FPM as `deploy:www-data`. Clone the API into `/home/deploy/porsca-api`, check out `staging`, and install production dependencies.
 
 Create the host-only `.env` (mode 0600), generate the Laravel key, migrate, and set ownership/permissions so the deploy user owns the checkout and PHP-FPM's `www-data` group can write `storage` and `bootstrap/cache`. The example is a template only; substitute values privately on the host. Never commit actual credentials or put database, PayMongo, or admin secrets in GitHub Actions or mobile configuration.
 
 ```dotenv
 APP_ENV=staging
 APP_DEBUG=false
-APP_URL=https://staging-api.<domain>
+APP_URL=https://staging-api.porsca.online
 DB_CONNECTION=staging
 STAGING_DB_CONNECTION=mysql
 STAGING_DB_HOST=127.0.0.1
@@ -42,7 +42,7 @@ PAYMONGO_SECRET_KEY=<operator-test-secret>
 PAYMONGO_WEBHOOK_SECRET=<operator-signing-secret>
 ```
 
-Add the daily Laravel scheduler cron (`php artisan schedule:run`) and retain backups/snapshots before migrations and schema changes. PayMongo remains sandbox-only; register its signed webhook at `https://staging-api.<domain>/api/v1/webhooks/paymongo` only after the operator configures the live host.
+Add the daily Laravel scheduler cron (`php artisan schedule:run`) and retain backups/snapshots before migrations and schema changes. PayMongo remains sandbox-only; register its signed webhook at `https://staging-api.porsca.online/api/v1/webhooks/paymongo` only after the operator configures the live host.
 
 ### Deploy
 
@@ -67,7 +67,7 @@ php artisan db:show --database=staging
 Confirm the isolated staging database and application tables. SQLite is only a local-test fallback. From an external network:
 
 ```bash
-curl --fail https://staging-api.<domain>/api/v1/health
+curl --fail https://staging-api.porsca.online/api/v1/health
 ```
 
 Require HTTP 200 and the staging, healthy database, sandbox, healthy status, and deployed full SHA fields above. After a human release owner starts a new cycle, reset once at its start with `php artisan qa:reset --force`; it is destructive and never a recovery step. Preserve cycle data thereafter.

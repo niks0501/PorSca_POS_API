@@ -153,7 +153,7 @@ For staging, copy the environment file to a file outside git and override `base_
 cp postman/PorSca-API.postman_environment.json /tmp/porsca-staging.postman_environment.json
 npx newman run postman/PorSca-API.postman_collection.json \
   -e /tmp/porsca-staging.postman_environment.json \
-  --env-var base_url=https://<stable-api-host>/api/v1 \
+  --env-var base_url=https://staging-api.porsca.online/api/v1 \
   --env-var expected_environment=staging \
   --env-var admin_email="$ADMIN_EMAIL" \
   --env-var admin_password="$ADMIN_PASSWORD" \
