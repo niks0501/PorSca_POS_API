@@ -15,7 +15,7 @@ mobile_commit: <full mobile commit SHA>
 api_branch: staging
 mobile_build: <tester build or exact run command>
 seed_version: qa-baseline-2026-10
-api_base_url: https://<stable-api-host>/api/v1
+api_base_url: https://staging-api.porsca.online/api/v1
 environment: staging
 paymongo:
   mode: sandbox
